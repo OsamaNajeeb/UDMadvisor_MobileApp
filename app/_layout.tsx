@@ -1,24 +1,46 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
-import 'react-native-reanimated';
+import { CourseProvider } from './store/CourseContext';
 
-import { useColorScheme } from '@/hooks/use-color-scheme';
-
-export const unstable_settings = {
-  anchor: '(tabs)',
-};
-
-export default function RootLayout() {
-  const colorScheme = useColorScheme();
-
+export default function Layout() {
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
-      </Stack>
-      <StatusBar style="auto" />
-    </ThemeProvider>
+
+    <Stack
+      screenOptions={{
+        headerStyle: {
+          backgroundColor: '#A5093E', // Default UDM Red for all headers
+        },
+        headerTintColor: '#fff', // White text
+        headerTitleStyle: {
+          fontWeight: 'bold',
+        },
+      }}
+    >
+
+      <Stack.Screen 
+        name="index" 
+        options={{ 
+          headerShown: false, // Hide header on Login screen
+          presentation: 'card', // Force standard "push" animation
+        }} 
+      />
+
+      <Stack.Screen 
+        name="dashboard" 
+        options={{ 
+          headerShown: false, // We hid the header here because you built a custom one in dashboard.tsx
+          presentation: 'card', // <--- THIS LINE REMOVES THE MODAL BEHAVIOR
+          gestureEnabled: false, // Prevents swiping back to login
+        }} 
+      />
+      <Stack.Screen
+        name="select_term"
+        options={{headerShown:false}}
+      />
+
+      <Stack.Screen
+        name="courseviewer"
+        options={{headerShown:false}}
+      /> 
+    </Stack>
   );
 }
