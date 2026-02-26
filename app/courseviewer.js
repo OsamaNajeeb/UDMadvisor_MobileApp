@@ -3,6 +3,7 @@ import { View, StyleSheet, Modal, FlatList } from 'react-native';
 import { Text, Appbar, Card, Button, TextInput, Divider, List } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import { CourseContext } from '../store/CourseContext'; 
+import { Picker } from '@react-native-picker/picker'
 
 export default function CourseViewer() {
   const router = useRouter();
@@ -11,8 +12,11 @@ export default function CourseViewer() {
   const [displayCourses, setDisplayCourses] = useState({});
 
   useEffect(() => {
-    setDisplayCourses(globalCourses);
-  }, [globalCourses]);
+      // Fallback to an empty object if globalCourses is null/undefined during loading
+      setDisplayCourses(globalCourses || {}); 
+      // Close any open accordion so we don't try to render missing data
+      setExpandedSubject(null); 
+    }, [globalCourses]);
 
   const [filterVisible, setFilterVisible] = useState(false);
   const [searchSubject, setSearchSubject] = useState('');
@@ -28,6 +32,7 @@ export default function CourseViewer() {
 
   const applyFilters = () => {
     const newFilteredList = {};
+    const sortedSubjects = Object.keys(displayCourses || {}).sort();
     Object.keys(globalCourses).forEach(category => {
       const filteredCourses = globalCourses[category].filter(course => {
         const matchSubject = searchSubject === '' || 
@@ -64,32 +69,76 @@ export default function CourseViewer() {
         onPress={() => setExpandedSubject(isExpanded ? null : subject)}
       >
         {/* LAZY LOADING: Only map through the 100+ cards IF this specific accordion is open! */}
-        {isExpanded && displayCourses[subject].map((course) => {
+        {isExpanded && displayCourses[subject]?.map((course) => {
           const meeting = course.meeting_times?.[0] || {};
           const isOnline = course.section?.startsWith('OL') || meeting.building === "ONLINE";
 
           return (
             <Card key={course.course_id} style={styles.card}>
-              <Card.Content>
-                <View style={styles.cardHeader}>
-                  <Text variant="titleMedium" style={styles.courseCode}>
-                    {course.subject} {course.course_number}
-                  </Text>
-                  {isOnline && (
-                    <View style={styles.onlineBadge}>
-                      <Text style={styles.onlineBadgeText}>Online</Text>
-                    </View>
-                  )}
-                </View>
-                
-                <Text variant="bodyLarge" style={styles.courseName}>{course.course_name}</Text>
-                
-                {!isOnline && meeting.meeting_begin_time && (
-                  <Text style={styles.timeText}>
-                    ⏰ {formatTime(meeting.meeting_begin_time)} - {formatTime(meeting.meeting_end_time)}
-                  </Text>
+            <Card.Content>
+              <View style={styles.cardHeader}>
+                <Text variant="titleMedium" style={styles.courseCode}>
+                  {course.subject} {course.course_number}
+                </Text>
+                {isOnline && (
+                  <View style={styles.onlineBadge}>
+                    <Text style={styles.onlineBadgeText}>Online</Text>
+                  </View>
                 )}
-              </Card.Content>
+              </View>
+              
+              <Text variant="bodyLarge" style={styles.courseName}>{course.course_name}</Text>
+
+              {/* 1. Meeting Times Loop (ONLY ONE LOOP NOW!) */}
+              {course.meeting_times?.map((meetingObj, index) => {
+                const meeting = meetingObj.meetingTime || meetingObj;
+                
+                const begin = meeting.beginTime || meeting.meeting_begin_time;
+                const end = meeting.endTime || meeting.meeting_end_time;
+
+                let days = "";
+                if (meeting.monday) days += "M ";
+                if (meeting.tuesday) days += "T ";
+                if (meeting.wednesday) days += "W ";
+                if (meeting.thursday) days += "Th ";
+                if (meeting.friday) days += "F ";
+                if (meeting.saturday) days += "Sat ";
+
+                return (
+                  <View key={index} style={{ marginTop: 5 }}>
+                    {begin ? (
+                      <Text style={styles.timeText}>
+                        ⏰ {days.trim()} | {formatTime(begin)} - {formatTime(end)}
+                        {meeting.room ? ` (Rm ${meeting.room})` : ''}
+                      </Text>
+                    ) : (
+                      <Text style={styles.timeText}>⏳ Asynchronous (No scheduled time)</Text>
+                    )}
+                  </View>
+                );
+              })}
+
+              {/* 2. Section and Credits Row */}
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 }}>
+                <Text style={{ fontWeight: '600', color: '#555' }}>
+                  Section: {course.section}
+                </Text>
+                <Text style={{ fontWeight: '600', color: '#555' }}>
+                  Credits: {course.credits}
+                </Text>
+              </View>
+
+              {/* 3. Faculty / Instructor Row */}
+              <View style={{ marginTop: 8, borderTopWidth: 1, borderTopColor: '#eee', paddingTop: 5 }}>
+                <Text style={{ fontSize: 13, color: '#666' }}>
+                  {/* Since Python sends an array of strings like ["Joe Pia"], we just join them! */}
+                  👤 Faculty: {course.faculty && course.faculty.length > 0 
+                    ? course.faculty.join(', ') 
+                    : "Staff"}
+                </Text>
+              </View>
+
+            </Card.Content>
               <Card.Actions>
                 <Button mode="contained" buttonColor="#002d72" onPress={() => alert(`Adding ${course.course_number} to Calendar!`)}>
                   Add to Schedule
@@ -144,7 +193,33 @@ export default function CourseViewer() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text variant="titleLarge" style={{ fontWeight: 'bold', marginBottom: 20 }}>Filter Options</Text>
-            <TextInput mode="outlined" label="Subject (e.g. CS)" value={searchSubject} onChangeText={setSearchSubject} style={styles.fullInput} activeOutlineColor="#002d72" />
+            <Text variant="titleMedium" style={{ marginTop: 10, marginBottom: 5, color: '#333' }}>
+              Subject
+            </Text>
+            <View style={{ backgroundColor: '#fff', borderWidth: 1, borderColor: '#79747e', borderRadius: 4, marginBottom: 15 }}>
+              <Picker
+                selectedValue={searchSubject}
+                onValueChange={(itemValue) => setSearchSubject(itemValue)}
+              >
+                {/* The Default "All" Option */}
+                <Picker.Item label="Show all Subjects" value="" />
+                
+                {/* Dynamically generate the dropdown using BOTH the Acronym and the Full Title */}
+                {Object.keys(globalCourses || {}).sort().map((categoryName) => {
+                  
+                  // Peek at the first course in the category array to grab its acronym (e.g., "ACC")
+                  const acronym = globalCourses[categoryName][0]?.subject || "";
+
+                  return (
+                    <Picker.Item 
+                      key={acronym} 
+                      label={`${acronym}: ${categoryName}`} // What the user sees: "ACC: Accounting"
+                      value={acronym}                       // What the filter uses: "ACC"
+                    />
+                  );
+                })}
+              </Picker>
+            </View>
             <TextInput mode="outlined" label="Course No." value={searchNumber} onChangeText={setSearchNumber} style={styles.fullInput} activeOutlineColor="#002d72" keyboardType="numeric" />
             <TextInput mode="outlined" label="Course Title" value={searchTitle} onChangeText={setSearchTitle} style={styles.fullInput} activeOutlineColor="#002d72" />
             <TextInput mode="outlined" label="Attribute" value={searchAttribute} onChangeText={setSearchAttribute} style={styles.fullInput} activeOutlineColor="#002d72" />

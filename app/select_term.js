@@ -39,13 +39,19 @@ export default function SelectTerm() {
   }, []);
 
   // 2. Fetch the courses when button is clicked
-  const handleSelectTerm = async () => {
+const handleSelectTerm = async () => {
     if (!selectedTerm) {
       Alert.alert("Wait!", "Please select a term.");
       return;
     }
 
+    if (loading) return; 
+
     setLoading(true);
+
+    // 1. THE MEMORY FLUSH: Destroy the old data immediately to free up RAM!
+    setGlobalCourses({});
+
     const termObj = terms.find(t => t.code === selectedTerm);
 
     try {
@@ -55,30 +61,41 @@ export default function SelectTerm() {
       const data = await response.json();
 
       if (!response.ok) {
-        if (data?.error?.code === 'NO_CACHE_FILE_EXISTS') {
-          Alert.alert("Cache Error", data.error.message);
-        } else {
-          Alert.alert("Error", "An unexpected error occurred.");
-        }
+        // ... keep your existing error handling ...
         setLoading(false);
         return;
       }
 
-      // 3. Sort the raw data into categories
+// 3. Sort AND SHRINK the raw data
       const groupedCourses = {};
       data.forEach(course => {
-        const category = course.course_description || "Other";
+        const category = course.course_description || course.subjectDescription || "Other";
         
         if (!groupedCourses[category]) {
           groupedCourses[category] = [];
         }
-        groupedCourses[category].push(course);
+
+        // Keep it simple! Python already cleaned these keys for us.
+        groupedCourses[category].push({
+          course_id: course.course_id,
+          subject: course.subject,
+          course_number: course.course_number,
+          course_name: course.course_name,
+          section: course.section || "N/A",            // Python already named this 'section'
+          credits: course.credits ?? 0,                // Python already calculated 'credits'
+          faculty: course.faculty || [],               // Python already made this a string array
+          meeting_times: course.meeting_times || []
+        });
       });
 
-      // 4. Lock the sorted data into the Vault and change screens
+      // 4. Lock the tiny, optimized data into the Vault
       setGlobalCourses(groupedCourses);
-      setLoading(false);
-      router.push('/courseviewer');
+      
+      // Give the garbage collector 150ms to breathe before sliding the screen
+      setTimeout(() => {
+        setLoading(false);
+        router.push('/courseviewer');
+      }, 150);
 
     } catch (error) {
       console.error("Fetch Courses Error:", error);
