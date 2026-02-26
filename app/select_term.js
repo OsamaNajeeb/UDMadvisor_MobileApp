@@ -1,41 +1,44 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import { View, StyleSheet, Alert } from 'react-native';
-import { Text, Button, Appbar, useTheme } from 'react-native-paper';
+import { Text, Button, Appbar } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import { Picker } from '@react-native-picker/picker';
+import { CourseContext } from '../store/CourseContext'; // The Vault!
 
+// UPDATE THIS IF YOUR IPCONFIG CHANGED!
 const MY_IP_ADDRESS = "10.0.53.168"; 
+
+
+//DYNAMIC IP CHANGE IF THE LOCATION OF YOUR LAPTOP CHANGES
+// const MY_IP_ADDRESS = "172.18.4.240"; 
+
+
 
 export default function SelectTerm() {
   const router = useRouter();
-  const theme = useTheme();
+  const { setGlobalCourses } = useContext(CourseContext);
 
   const [terms, setTerms] = useState([]);
   const [selectedTerm, setSelectedTerm] = useState();
   const [loading, setLoading] = useState(false);
 
+  // 1. Fetch the terms when screen loads
   useEffect(() => {
     const fetchTerms = async () => {
       try {
         const response = await fetch(`http://${MY_IP_ADDRESS}:5000/api/fetch_all_terms`);
-        
-        if (!response.ok) {
-          throw new Error('Network response was not ok');
-        }
-        
+        if (!response.ok) throw new Error('Network response was not ok');
         const data = await response.json();
-        setTerms(data); 
-        
+        setTerms(data);
       } catch (error) {
         console.error("Error fetching terms:", error);
         Alert.alert("Connection Error", "Could not fetch terms from the server.");
       }
     };
-
     fetchTerms();
   }, []);
 
-  // 2. Fetch the COURSES when the button is clicked
+  // 2. Fetch the courses when button is clicked
   const handleSelectTerm = async () => {
     if (!selectedTerm) {
       Alert.alert("Wait!", "Please select a term.");
@@ -43,12 +46,11 @@ export default function SelectTerm() {
     }
 
     setLoading(true);
-
     const termObj = terms.find(t => t.code === selectedTerm);
 
     try {
       const apiUrl = `http://${MY_IP_ADDRESS}:5000/api/fetch_courses?term_name=${encodeURIComponent(termObj.description)}&term_code=${termObj.code}&refresh_course_data=false`;
-
+      
       const response = await fetch(apiUrl);
       const data = await response.json();
 
@@ -56,14 +58,27 @@ export default function SelectTerm() {
         if (data?.error?.code === 'NO_CACHE_FILE_EXISTS') {
           Alert.alert("Cache Error", data.error.message);
         } else {
-          Alert.alert("Error", "An unexpected error occurred when fetching courses.");
+          Alert.alert("Error", "An unexpected error occurred.");
         }
         setLoading(false);
         return;
       }
 
+      // 3. Sort the raw data into categories
+      const groupedCourses = {};
+      data.forEach(course => {
+        const category = course.course_description || "Other";
+        
+        if (!groupedCourses[category]) {
+          groupedCourses[category] = [];
+        }
+        groupedCourses[category].push(course);
+      });
+
+      // 4. Lock the sorted data into the Vault and change screens
+      setGlobalCourses(groupedCourses);
       setLoading(false);
-      Alert.alert("Success!", `Successfully downloaded ${data.length} courses from the Python server!`);
+      router.push('/courseviewer');
 
     } catch (error) {
       console.error("Fetch Courses Error:", error);
@@ -96,7 +111,7 @@ export default function SelectTerm() {
 
         <Button 
           mode="contained" 
-          onPress={()=> router.push('/courseviewer')} 
+          onPress={handleSelectTerm} 
           loading={loading}
           style={styles.button}
         >
@@ -111,15 +126,6 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f5f5' },
   content: { flex: 1, padding: 20, justifyContent: 'center' },
   title: { fontWeight: 'bold', textAlign: 'center', marginBottom: 20, color: '#333' },
-  pickerContainer: {
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 5,
-    marginBottom: 20,
-  },
-  button: {
-    backgroundColor: '#002d72', // UDM Blue
-    paddingVertical: 5,
-  }
+  pickerContainer: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#ccc', borderRadius: 5, marginBottom: 20 },
+  button: { backgroundColor: '#002d72', paddingVertical: 5 }
 });
