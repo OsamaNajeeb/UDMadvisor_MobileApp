@@ -1,14 +1,15 @@
 import React, { useState, useContext, useEffect } from 'react';
-import { View, StyleSheet, Modal, FlatList } from 'react-native';
-import { Text, Appbar, Card, Button, TextInput, Divider, List } from 'react-native-paper';
+import { View, StyleSheet, Modal, FlatList, ScrollView } from 'react-native';
+import { Text, Appbar, Card, Button, TextInput, Divider, List, Badge } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import { CourseContext } from '../store/CourseContext'; 
 import { Picker } from '@react-native-picker/picker'
 
 export default function CourseViewer() {
   const router = useRouter();
-  
-  const { globalCourses } = useContext(CourseContext);
+
+  const { globalCourses, selectedCourses, toggleCourse } = useContext(CourseContext);
+  const [scheduleModalVisible, setScheduleModalVisible] = useState(false); // State for our new modal
   const [displayCourses, setDisplayCourses] = useState({});
 
   useEffect(() => {
@@ -140,9 +141,23 @@ export default function CourseViewer() {
 
             </Card.Content>
               <Card.Actions>
-                <Button mode="contained" buttonColor="#002d72" onPress={() => alert(`Adding ${course.course_number} to Calendar!`)}>
-                  Add to Schedule
-                </Button>
+                {selectedCourses.some(c => c.course_id === course.course_id) ? (
+                  <Button 
+                    mode="contained" 
+                    buttonColor="#A5093E" 
+                    onPress={() => toggleCourse(course)}
+                  >
+                    Remove from Schedule
+                  </Button>
+                ) : (
+                  <Button 
+                    mode="contained" 
+                    buttonColor="#002d72" 
+                    onPress={() => toggleCourse(course)}
+                  >
+                    Add to Schedule
+                  </Button>
+                )}
               </Card.Actions>
             </Card>
           );
@@ -156,6 +171,17 @@ export default function CourseViewer() {
       <Appbar.Header style={{ backgroundColor: '#A5093E' }}>
         <Appbar.BackAction onPress={() => router.back()} color="#fff" />
         <Appbar.Content title="Browse Courses" color="#fff" />
+
+        {/* The Inventory/Cart Button */}
+        <View>
+          <Appbar.Action icon="calendar" color="#fff" onPress={() => setScheduleModalVisible(true)} />
+          {selectedCourses.length > 0 && (
+            <Badge style={{ position: 'absolute', top: 5, right: 5, backgroundColor: '#fff', color: '#A5093E' }}>
+              {selectedCourses.length}
+            </Badge>
+          )}
+        </View>
+
         <Appbar.Action icon="filter-variant" color="#fff" onPress={() => setFilterVisible(true)} />
       </Appbar.Header>
 
@@ -230,6 +256,58 @@ export default function CourseViewer() {
           </View>
         </View>
       </Modal>
+              {/* --- SELECTED COURSES MODAL --- */}
+        <Modal visible={scheduleModalVisible} animationType="slide" transparent={true} onRequestClose={() => setScheduleModalVisible(false)}>
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <Text variant="headlineSmall" style={{ fontWeight: 'bold', marginBottom: 10, color: '#333' }}>
+                My Schedule
+              </Text>
+              
+              {/* Calculate Total Credits dynamically */}
+              <Text style={{ fontWeight: 'bold', color: '#002d72', marginBottom: 15 }}>
+                Total Credits: {selectedCourses.reduce((sum, course) => sum + (course.credits || 0), 0)}
+              </Text>
+
+              {selectedCourses.length === 0 ? (
+                <Text style={{ color: '#666', textAlign: 'center', marginVertical: 20 }}>
+                  No courses selected yet.
+                </Text>
+              ) : (
+                <ScrollView style={{ maxHeight: 400 }}>
+                  {selectedCourses.map((course) => (
+                    <View key={course.course_id} style={{ paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#eee' }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <View style={{ flex: 1, paddingRight: 10 }}>
+                          <Text style={{ fontWeight: 'bold', color: '#333' }}>
+                            {course.subject} {course.course_number}: {course.course_name}
+                          </Text>
+                          <Text style={{ fontSize: 12, color: '#666' }}>
+                            Section: {course.section} | Credits: {course.credits}
+                          </Text>
+                        </View>
+                        <Button 
+                          mode="text" 
+                          textColor="#A5093E" 
+                          compact 
+                          onPress={() => toggleCourse(course)}
+                        >
+                          Remove
+                        </Button>
+                      </View>
+                    </View>
+                  ))}
+                </ScrollView>
+              )}
+
+              <View style={{ marginTop: 20, alignItems: 'flex-end' }}>
+                <Button mode="contained" buttonColor="#002d72" onPress={() => setScheduleModalVisible(false)}>
+                  Close
+                </Button>
+              </View>
+            </View>
+          </View>
+        </Modal>
     </View>
   );
 }

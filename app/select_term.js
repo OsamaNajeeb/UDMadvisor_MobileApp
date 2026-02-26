@@ -16,7 +16,7 @@ const MY_IP_ADDRESS = "10.0.53.168";
 
 export default function SelectTerm() {
   const router = useRouter();
-  const { setGlobalCourses } = useContext(CourseContext);
+  const { setGlobalCourses, setSelectedCourses } = useContext(CourseContext);
 
   const [terms, setTerms] = useState([]);
   const [selectedTerm, setSelectedTerm] = useState();
@@ -49,8 +49,11 @@ const handleSelectTerm = async () => {
 
     setLoading(true);
 
-    // 1. THE MEMORY FLUSH: Destroy the old data immediately to free up RAM!
+    // 1. THE MEMORY FLUSH: Destroy the old catalog to free up RAM!
     setGlobalCourses({});
+    
+    // NEW: THE CART FLUSH: Empty the user's schedule since they are changing terms!
+    setSelectedCourses([]); 
 
     const termObj = terms.find(t => t.code === selectedTerm);
 
