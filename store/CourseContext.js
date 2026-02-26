@@ -1,9 +1,11 @@
 import React, { createContext, useState } from 'react';
 
-export const CourseContext = createContext();
+export const CourseContext = createContext({
+  globalCourses: {},
+  setGlobalCourses: () => {}
+});
 
 export const CourseProvider = ({ children }) => {
-  // This variable will hold our sorted groups: {"Accounting": [...], "Biology": [...]}
   const [globalCourses, setGlobalCourses] = useState({});
 
   return (
