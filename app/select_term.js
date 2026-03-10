@@ -5,12 +5,8 @@ import { useRouter } from 'expo-router';
 import { Picker } from '@react-native-picker/picker';
 import { CourseContext } from '../store/CourseContext'; // The Vault!
 
-// UPDATE THIS IF YOUR IPCONFIG CHANGED!
-const MY_IP_ADDRESS = "10.0.53.168"; 
-
-
-//DYNAMIC IP CHANGE IF THE LOCATION OF YOUR LAPTOP CHANGES
-// const MY_IP_ADDRESS = "172.18.4.240"; 
+// Cloud Server URL
+const API_BASE_URL = "https://udmadvisor-server.onrender.com";
 
 
 
@@ -26,7 +22,7 @@ export default function SelectTerm() {
   useEffect(() => {
     const fetchTerms = async () => {
       try {
-        const response = await fetch(`http://${MY_IP_ADDRESS}:5000/api/fetch_all_terms`);
+        const response = await fetch(`${API_BASE_URL}/api/fetch_all_terms`);
         if (!response.ok) throw new Error('Network response was not ok');
         const data = await response.json();
         setTerms(data);
@@ -58,8 +54,7 @@ const handleSelectTerm = async () => {
     const termObj = terms.find(t => t.code === selectedTerm);
 
     try {
-      const apiUrl = `http://${MY_IP_ADDRESS}:5000/api/fetch_courses?term_name=${encodeURIComponent(termObj.description)}&term_code=${termObj.code}&refresh_course_data=false`;
-      
+      const apiUrl = `${API_BASE_URL}/api/fetch_courses?term_name=${encodeURIComponent(termObj.description)}&term_code=${termObj.code}&refresh_course_data=false`;
       const response = await fetch(apiUrl);
       const data = await response.json();
 

@@ -1,9 +1,80 @@
 import React, { useState, useContext, useEffect } from 'react';
 import { View, StyleSheet, Modal, FlatList, ScrollView } from 'react-native';
 import { Text, Appbar, Card, Button, TextInput, Divider, List, Badge } from 'react-native-paper';
+import WeekView from 'react-native-week-view';
 import { useRouter } from 'expo-router';
 import { CourseContext } from '../store/CourseContext'; 
 import { Picker } from '@react-native-picker/picker'
+
+// NEW HELPER: Always find the Monday of the current week!
+const getCurrentMonday = () => {
+  const d = new Date();
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1); 
+  return new Date(d.getFullYear(), d.getMonth(), diff);
+};
+
+// We save it here so both the Events and the WeekView use the exact same dates
+const CURRENT_MONDAY = getCurrentMonday();
+
+const generateCalendarEvents = (courses) => {
+  const events = [];
+  
+  // Dynamically generate the dates for the current week
+  const baseDates = {};
+  const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+  
+  days.forEach((day, index) => {
+    const d = new Date(CURRENT_MONDAY);
+    d.setDate(CURRENT_MONDAY.getDate() + index);
+    
+    // Format perfectly as YYYY-MM-DD
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const date = String(d.getDate()).padStart(2, '0');
+    baseDates[day] = `${year}-${month}-${date}`;
+  });
+
+  const colors = ['#002d72', '#A5093E', '#093575', '#229cd0', '#820b0b'];
+
+  courses.forEach((course, courseIndex) => {
+    const color = colors[courseIndex % colors.length];
+
+    // NOTICE THE NEW `meetingIndex` HERE:
+    (course.meeting_times || []).forEach((meetingObj, meetingIndex) => {
+      const meeting = meetingObj.meetingTime || meetingObj;
+      if (!meeting.beginTime && !meeting.meeting_begin_time) return; 
+
+      const beginStr = meeting.beginTime || meeting.meeting_begin_time;
+      const endStr = meeting.endTime || meeting.meeting_end_time;
+
+      const beginHours = parseInt(beginStr.substring(0, 2), 10);
+      const beginMinutes = parseInt(beginStr.substring(2, 4), 10);
+      const endHours = parseInt(endStr.substring(0, 2), 10);
+      const endMinutes = parseInt(endStr.substring(2, 4), 10);
+
+      Object.keys(baseDates).forEach(day => {
+        if (meeting[day]) {
+          const startDate = new Date(`${baseDates[day]}T00:00:00`);
+          startDate.setHours(beginHours, beginMinutes, 0);
+
+          const endDate = new Date(`${baseDates[day]}T00:00:00`);
+          endDate.setHours(endHours, endMinutes, 0);
+
+          events.push({
+            // THE FIX: Added meetingIndex to make duplicate blocks globally unique!
+            id: `${course.course_id}-${day}-${meetingIndex}`,
+            description: `${course.subject} ${course.course_number}\nRm: ${meeting.room || 'TBD'}`,
+            startDate: startDate,
+            endDate: endDate,
+            color: color,
+          });
+        }
+      });
+    });
+  });
+  return events;
+};
 
 export default function CourseViewer() {
   const router = useRouter();
@@ -194,7 +265,7 @@ export default function CourseViewer() {
         // FlatList lets us put the title and buttons inside a Header component so they scroll naturally
         ListHeaderComponent={
           <>
-            <Button 
+            {/* <Button 
               icon="filter" 
               mode="outlined" 
               textColor="#002d72"
@@ -202,7 +273,7 @@ export default function CourseViewer() {
               onPress={() => setFilterVisible(true)}
             >
               Filter Classes
-            </Button>
+            </Button> */}
             <Divider style={{ marginVertical: 15 }} />
             <Text variant="titleLarge" style={styles.pageTitle}>All Courses</Text>
             
@@ -257,57 +328,60 @@ export default function CourseViewer() {
         </View>
       </Modal>
               {/* --- SELECTED COURSES MODAL --- */}
-        <Modal visible={scheduleModalVisible} animationType="slide" transparent={true} onRequestClose={() => setScheduleModalVisible(false)}>
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalContent}>
-              <Text variant="headlineSmall" style={{ fontWeight: 'bold', marginBottom: 10, color: '#333' }}>
-                My Schedule
-              </Text>
-              
-              {/* Calculate Total Credits dynamically */}
-              <Text style={{ fontWeight: 'bold', color: '#002d72', marginBottom: 15 }}>
-                Total Credits: {selectedCourses.reduce((sum, course) => sum + (course.credits || 0), 0)}
-              </Text>
+      <Modal visible={scheduleModalVisible} animationType="slide" transparent={true} onRequestClose={() => setScheduleModalVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text variant="headlineSmall" style={{ fontWeight: 'bold', marginBottom: 10, color: '#333' }}>
+              My Schedule
+            </Text>
+            
+            {/* Calculate Total Credits dynamically */}
+            <Text style={{ fontWeight: 'bold', color: '#002d72', marginBottom: 15 }}>
+              Total Credits: {selectedCourses.reduce((sum, course) => sum + (course.credits || 0), 0)}
+            </Text>
 
-              {selectedCourses.length === 0 ? (
-                <Text style={{ color: '#666', textAlign: 'center', marginVertical: 20 }}>
-                  No courses selected yet.
-                </Text>
-              ) : (
-                <ScrollView style={{ maxHeight: 400 }}>
-                  {selectedCourses.map((course) => (
-                    <View key={course.course_id} style={{ paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#eee' }}>
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                        <View style={{ flex: 1, paddingRight: 10 }}>
-                          <Text style={{ fontWeight: 'bold', color: '#333' }}>
-                            {course.subject} {course.course_number}: {course.course_name}
-                          </Text>
-                          <Text style={{ fontSize: 12, color: '#666' }}>
-                            Section: {course.section} | Credits: {course.credits}
-                          </Text>
-                        </View>
-                        <Button 
-                          mode="text" 
-                          textColor="#A5093E" 
-                          compact 
-                          onPress={() => toggleCourse(course)}
-                        >
-                          Remove
-                        </Button>
-                      </View>
-                    </View>
-                  ))}
-                </ScrollView>
-              )}
-
-              <View style={{ marginTop: 20, alignItems: 'flex-end' }}>
-                <Button mode="contained" buttonColor="#002d72" onPress={() => setScheduleModalVisible(false)}>
-                  Close
-                </Button>
+            {selectedCourses.length === 0 ? (
+              <Text style={{ color: '#666', textAlign: 'center', marginVertical: 20 }}>
+                No courses selected yet.
+              </Text>
+            ) : (
+              <View style={{ height: 450, marginTop: 10 }}> 
+                {/* The actual Calendar Component! 
+                  Notice it is NO LONGER trapped inside a ScrollView so the swipe gestures will work perfectly. 
+                */}
+                  <WeekView
+                      events={generateCalendarEvents(selectedCourses)}
+                      
+                      // THE FIX: Tell the calendar to start on the dynamic Monday we calculated!
+                      selectedDate={CURRENT_MONDAY} 
+                      
+                      numberOfDays={5} // Show Monday through Friday
+                      formatDateHeader="ddd" // Just show "Mon", "Tue"
+                      hoursInDisplay={10} 
+                      startHour={8} // Start the calendar at 8 AM
+                      headerStyle={{ backgroundColor: '#fff', borderBottomWidth: 1, borderColor: '#eee' }}
+                      headerTextStyle={{ color: '#333', fontWeight: 'bold' }}
+                      hourTextStyle={{ color: '#666', fontSize: 12 }}
+                      eventContainerStyle={{ borderRadius: 4, padding: 2 }}
+                    />
+                
+                {/* Show Async classes that don't fit on the calendar */}
+                {selectedCourses.some(c => c.meeting_times?.some(m => !m.beginTime && !m.meeting_begin_time)) && (
+                  <Text style={{ marginTop: 10, fontSize: 12, color: '#A5093E', fontWeight: 'bold', textAlign: 'center' }}>
+                    * Note: You also have asynchronous online classes selected.
+                  </Text>
+                )}
               </View>
+            )}
+
+            <View style={{ marginTop: 20, alignItems: 'flex-end' }}>
+              <Button mode="contained" buttonColor="#002d72" onPress={() => setScheduleModalVisible(false)}>
+                Close
+              </Button>
             </View>
           </View>
-        </Modal>
+        </View>
+      </Modal>
     </View>
   );
 }
