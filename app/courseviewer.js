@@ -1,5 +1,5 @@
 import React, { useState, useContext, useEffect } from 'react';
-import { View, StyleSheet, Modal, FlatList, ScrollView } from 'react-native';
+import { View, StyleSheet, Modal, FlatList, Alert } from 'react-native';
 import { Text, Appbar, Card, Button, TextInput, Divider, List, Badge } from 'react-native-paper';
 import WeekView from 'react-native-week-view';
 import { useRouter } from 'expo-router';
@@ -17,62 +17,101 @@ const getCurrentMonday = () => {
 // We save it here so both the Events and the WeekView use the exact same dates
 const CURRENT_MONDAY = getCurrentMonday();
 
-const generateCalendarEvents = (courses) => {
-  const events = [];
-  
-  // Dynamically generate the dates for the current week
-  const baseDates = {};
+// 1. HELPER FUNCTIONS GO HERE (Outside of the calendar generator so buttons can use them)
+const parseTime = (timeStr) => {
+  if (!timeStr) return null;
+  const hours = parseInt(timeStr.substring(0, 2), 10);
+  const minutes = parseInt(timeStr.substring(2, 4), 10);
+  return hours * 60 + minutes; 
+};
+
+const getConflict = (newCourse, currentSelectedCourses) => {
   const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-  
-  days.forEach((day, index) => {
-    const d = new Date(CURRENT_MONDAY);
-    d.setDate(CURRENT_MONDAY.getDate() + index);
+
+  for (let newMeetingObj of (newCourse.meeting_times || [])) {
+    const newMeeting = newMeetingObj.meetingTime || newMeetingObj;
+    const newBeginStr = newMeeting.beginTime || newMeeting.meeting_begin_time;
+    const newEndStr = newMeeting.endTime || newMeeting.meeting_end_time;
     
-    // Format perfectly as YYYY-MM-DD
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const date = String(d.getDate()).padStart(2, '0');
-    baseDates[day] = `${year}-${month}-${date}`;
-  });
+    if (!newBeginStr || !newEndStr) continue; 
 
-  const colors = ['#002d72', '#A5093E', '#093575', '#229cd0', '#820b0b'];
+    const newStart = parseTime(newBeginStr);
+    const newEnd = parseTime(newEndStr);
 
-  courses.forEach((course, courseIndex) => {
-    const color = colors[courseIndex % colors.length];
+    for (let existingCourse of currentSelectedCourses) {
+      for (let existingMeetingObj of (existingCourse.meeting_times || [])) {
+        const existingMeeting = existingMeetingObj.meetingTime || existingMeetingObj;
+        const existingBeginStr = existingMeeting.beginTime || existingMeeting.meeting_begin_time;
+        const existingEndStr = existingMeeting.endTime || existingMeeting.meeting_end_time;
 
-    // NOTICE THE NEW `meetingIndex` HERE:
-    (course.meeting_times || []).forEach((meetingObj, meetingIndex) => {
+        if (!existingBeginStr || !existingEndStr) continue; 
+
+        const existingStart = parseTime(existingBeginStr);
+        const existingEnd = parseTime(existingEndStr);
+
+        const sharedDay = days.some(day => newMeeting[day] && existingMeeting[day]);
+
+        if (sharedDay) {
+          if (newStart < existingEnd && newEnd > existingStart) {
+            return existingCourse; 
+          }
+        }
+      }
+    }
+  }
+  return null; 
+};
+
+const generateCalendarEvents = (courses) => {
+  let events = [];
+  if (!courses) return events;
+
+  const daysMap = {
+    monday: 0, tuesday: 1, wednesday: 2, thursday: 3, friday: 4, saturday: 5, sunday: 6
+  };
+
+  courses.forEach((course) => {
+    if (!course.meeting_times) return;
+
+    // ADDED 'index' HERE
+    course.meeting_times.forEach((meetingObj, index) => {
       const meeting = meetingObj.meetingTime || meetingObj;
-      if (!meeting.beginTime && !meeting.meeting_begin_time) return; 
-
       const beginStr = meeting.beginTime || meeting.meeting_begin_time;
       const endStr = meeting.endTime || meeting.meeting_end_time;
 
-      const beginHours = parseInt(beginStr.substring(0, 2), 10);
-      const beginMinutes = parseInt(beginStr.substring(2, 4), 10);
-      const endHours = parseInt(endStr.substring(0, 2), 10);
-      const endMinutes = parseInt(endStr.substring(2, 4), 10);
+      if (!beginStr || !endStr) return; 
 
-      Object.keys(baseDates).forEach(day => {
-        if (meeting[day]) {
-          const startDate = new Date(`${baseDates[day]}T00:00:00`);
-          startDate.setHours(beginHours, beginMinutes, 0);
+      const startHour = parseInt(beginStr.substring(0, 2), 10);
+      const startMinute = parseInt(beginStr.substring(2, 4), 10);
+      const endHour = parseInt(endStr.substring(0, 2), 10);
+      const endMinute = parseInt(endStr.substring(2, 4), 10);
 
-          const endDate = new Date(`${baseDates[day]}T00:00:00`);
-          endDate.setHours(endHours, endMinutes, 0);
+      Object.keys(daysMap).forEach((dayKey) => {
+        if (meeting[dayKey]) {
+          const eventDate = new Date(CURRENT_MONDAY);
+          eventDate.setDate(CURRENT_MONDAY.getDate() + daysMap[dayKey]);
+
+          const startDate = new Date(eventDate);
+          startDate.setHours(startHour, startMinute, 0, 0);
+
+          const endDate = new Date(eventDate);
+          endDate.setHours(endHour, endMinute, 0, 0);
 
           events.push({
-            // THE FIX: Added meetingIndex to make duplicate blocks globally unique!
-            id: `${course.course_id}-${day}-${meetingIndex}`,
-            description: `${course.subject} ${course.course_number}\nRm: ${meeting.room || 'TBD'}`,
-            startDate: startDate,
-            endDate: endDate,
-            color: color,
-          });
+                      id: `${course.course_id}-${dayKey}-${index}`,
+                      description: `${course.subject} ${course.course_number}\nSection ${course.section}`,
+                      startDate: startDate,
+                      endDate: endDate,
+                      color: '#002d72', 
+                      
+                      // THE FIX: Sneak the entire raw course object into the calendar block!
+                      courseData: course 
+                    });
         }
       });
     });
   });
+
   return events;
 };
 
@@ -82,6 +121,9 @@ export default function CourseViewer() {
   const { globalCourses, selectedCourses, toggleCourse } = useContext(CourseContext);
   const [scheduleModalVisible, setScheduleModalVisible] = useState(false); // State for our new modal
   const [displayCourses, setDisplayCourses] = useState({});
+
+  const [eventModalVisible, setEventModalVisible] = useState(false);
+  const [selectedEventCourse, setSelectedEventCourse] = useState(null);
 
   useEffect(() => {
       // Fallback to an empty object if globalCourses is null/undefined during loading
@@ -211,25 +253,53 @@ export default function CourseViewer() {
               </View>
 
             </Card.Content>
-              <Card.Actions>
-                {selectedCourses.some(c => c.course_id === course.course_id) ? (
-                  <Button 
-                    mode="contained" 
-                    buttonColor="#A5093E" 
-                    onPress={() => toggleCourse(course)}
-                  >
-                    Remove from Schedule
-                  </Button>
-                ) : (
-                  <Button 
-                    mode="contained" 
-                    buttonColor="#002d72" 
-                    onPress={() => toggleCourse(course)}
-                  >
-                    Add to Schedule
-                  </Button>
-                )}
-              </Card.Actions>
+            <Card.Actions>
+              {selectedCourses.some(c => c.course_id === course.course_id) ? (
+                <Button 
+                  mode="contained" 
+                  buttonColor="#A5093E" 
+                  onPress={() => toggleCourse(course)}
+                >
+                  Remove from Schedule
+                </Button>
+              ) : (
+            <Button 
+                              mode="contained" 
+                              buttonColor="#002d72" 
+                              onPress={() => {
+                                // 1. DUPLICATE COURSE CHECK
+                                const duplicateCourse = selectedCourses.find(
+                                  c => c.subject === course.subject && c.course_number === course.course_number
+                                );
+                                
+                                if (duplicateCourse) {
+                                  Alert.alert(
+                                    "Duplicate Course",
+                                    `You already have ${course.subject} ${course.course_number} in your schedule.`,
+                                    [{ text: "OK", style: "cancel" }]
+                                  );
+                                  return; 
+                                }
+
+                                // 2. TIME CONFLICT CHECK
+                                const conflictingCourse = getConflict(course, selectedCourses);
+                                
+                                if (conflictingCourse) {
+                                  Alert.alert(
+                                    "Scheduling Conflict",
+                                    `This course overlaps with:\n\n${conflictingCourse.subject} ${conflictingCourse.course_number}: ${conflictingCourse.course_name}`,
+                                    [{ text: "OK", style: "cancel" }]
+                                  );
+                                } else {
+                                  // 3. SUCCESS: Add it to the schedule!
+                                  toggleCourse(course);
+                                }
+                              }}
+                            >
+                              Add to Schedule
+                            </Button>
+              )}
+            </Card.Actions>
             </Card>
           );
         })}
@@ -262,6 +332,11 @@ export default function CourseViewer() {
         keyExtractor={(item) => item}
         renderItem={renderSubject}
         contentContainerStyle={styles.scrollContent}
+        
+        // ADD THESE THREE LINES:
+        initialNumToRender={10} 
+        maxToRenderPerBatch={5}
+        windowSize={5}
         // FlatList lets us put the title and buttons inside a Header component so they scroll naturally
         ListHeaderComponent={
           <>
@@ -345,27 +420,28 @@ export default function CourseViewer() {
                 No courses selected yet.
               </Text>
             ) : (
-              <View style={{ height: 450, marginTop: 10 }}> 
-                {/* The actual Calendar Component! 
-                  Notice it is NO LONGER trapped inside a ScrollView so the swipe gestures will work perfectly. 
-                */}
-                  <WeekView
-                      events={generateCalendarEvents(selectedCourses)}
-                      
-                      // THE FIX: Tell the calendar to start on the dynamic Monday we calculated!
-                      selectedDate={CURRENT_MONDAY} 
-                      
-                      numberOfDays={5} // Show Monday through Friday
-                      formatDateHeader="ddd" // Just show "Mon", "Tue"
-                      hoursInDisplay={10} 
-                      startHour={8} // Start the calendar at 8 AM
-                      headerStyle={{ backgroundColor: '#fff', borderBottomWidth: 1, borderColor: '#eee' }}
-                      headerTextStyle={{ color: '#333', fontWeight: 'bold' }}
-                      hourTextStyle={{ color: '#666', fontSize: 12 }}
-                      eventContainerStyle={{ borderRadius: 4, padding: 2 }}
-                    />
-                
-                {/* Show Async classes that don't fit on the calendar */}
+            <View style={{ height: 450, marginTop: 10, marginHorizontal: -15 }}>
+                          <WeekView
+                  events={generateCalendarEvents(selectedCourses)}
+                  selectedDate={CURRENT_MONDAY} 
+                  numberOfDays={7} 
+                  fixedHorizontally={true} 
+                  timeColumnWidth={35} 
+                  formatTimeLabel="h:mm A" 
+                  formatDateHeader="dd" 
+                  hoursInDisplay={20} 
+                  startHour={8} 
+                  headerTextStyle={{ color: '#333', fontWeight: 'bold', fontSize: 12 }} 
+                  hourTextStyle={{ color: '#666', fontSize: 10 }} 
+                  headerStyle={{ backgroundColor: '#fff', borderBottomWidth: 1, borderColor: '#eee' }}
+                  eventContainerStyle={{ borderRadius: 4, padding: 2 }}
+                  
+                  // ADD THIS NEW PROPERTY:
+                  onEventPress={(event) => {
+                    setSelectedEventCourse(event.courseData);
+                    setEventModalVisible(true);
+                  }}
+                />
                 {selectedCourses.some(c => c.meeting_times?.some(m => !m.beginTime && !m.meeting_begin_time)) && (
                   <Text style={{ marginTop: 10, fontSize: 12, color: '#A5093E', fontWeight: 'bold', textAlign: 'center' }}>
                     * Note: You also have asynchronous online classes selected.
@@ -379,6 +455,60 @@ export default function CourseViewer() {
                 Close
               </Button>
             </View>
+          </View>
+        </View>
+      </Modal>
+      {/* --- CALENDAR EVENT DETAILS MODAL --- */}
+      <Modal visible={eventModalVisible} animationType="fade" transparent={true}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            {selectedEventCourse && (
+              <>
+                <Text variant="titleLarge" style={{ fontWeight: 'bold', color: '#A5093E', marginBottom: 5 }}>
+                  {selectedEventCourse.subject} {selectedEventCourse.course_number}
+                </Text>
+                <Text variant="titleMedium" style={{ marginBottom: 15, color: '#333' }}>
+                  {selectedEventCourse.course_name}
+                </Text>
+
+                <View style={{ marginBottom: 20 }}>
+                  <Text style={{ color: '#555', marginBottom: 8, fontSize: 15 }}>
+                    <Text style={{ fontWeight: 'bold' }}>Section:</Text> {selectedEventCourse.section}
+                  </Text>
+                  <Text style={{ color: '#555', marginBottom: 8, fontSize: 15 }}>
+                    <Text style={{ fontWeight: 'bold' }}>CRN:</Text> {selectedEventCourse.course_id}
+                  </Text>
+                  <Text style={{ color: '#555', marginBottom: 8, fontSize: 15 }}>
+                    <Text style={{ fontWeight: 'bold' }}>Credits:</Text> {selectedEventCourse.credits}
+                  </Text>
+                  <Text style={{ color: '#555', marginBottom: 8, fontSize: 15 }}>
+                    <Text style={{ fontWeight: 'bold' }}>Instructor:</Text> {selectedEventCourse.faculty && selectedEventCourse.faculty.length > 0 ? selectedEventCourse.faculty.join(', ') : "Staff"}
+                  </Text>
+                </View>
+
+                <View style={{ flexDirection: 'column', gap: 10 }}>
+                  <Button 
+                    mode="contained" 
+                    buttonColor="#A5093E" 
+                    onPress={() => {
+                      // Drop the course and close the modal!
+                      toggleCourse(selectedEventCourse);
+                      setEventModalVisible(false);
+                    }}
+                  >
+                    Remove from Schedule
+                  </Button>
+                  <Button 
+                    mode="outlined" 
+                    textColor="#666" 
+                    style={{ borderColor: '#ccc' }}
+                    onPress={() => setEventModalVisible(false)}
+                  >
+                    Close
+                  </Button>
+                </View>
+              </>
+            )}
           </View>
         </View>
       </Modal>
@@ -400,8 +530,24 @@ const styles = StyleSheet.create({
   timeText: { color: '#666', fontStyle: 'italic', marginTop: 5 },
   onlineBadge: { backgroundColor: '#e0f2fe', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
   onlineBadgeText: { fontSize: 12, color: '#002d72', fontWeight: 'bold' },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 20 },
-  modalContent: { backgroundColor: '#fff', padding: 20, borderRadius: 12, elevation: 5, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4 },
+modalOverlay: { 
+    flex: 1, 
+    backgroundColor: 'rgba(0,0,0,0.5)', 
+    justifyContent: 'center', 
+    paddingVertical: 40, // Keeps spacing at the top and bottom
+    paddingHorizontal: 0 // <--- THE MAGIC FIX: Removes the 20px stealing Friday's space!
+  },
+  modalContent: { 
+    backgroundColor: '#fff', 
+    paddingVertical: 20, 
+    paddingHorizontal: 15, 
+    borderRadius: 0, // <--- Set to 0 since it now securely touches the edges of the phone
+    elevation: 5, 
+    shadowColor: '#000', 
+    shadowOffset: { width: 0, height: 2 }, 
+    shadowOpacity: 0.25, 
+    shadowRadius: 4 
+  },
   fullInput: { marginBottom: 15, backgroundColor: '#fff' },
   modalActions: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 10, gap: 10 }
 });
