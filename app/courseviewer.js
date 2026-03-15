@@ -1,8 +1,8 @@
 import React, { useState, useContext, useEffect } from 'react';
-import { View, StyleSheet, Modal, FlatList, Alert } from 'react-native';
+import { View, StyleSheet, Modal, FlatList, Alert, ActivityIndicator } from 'react-native';
 import { Text, Appbar, Card, Button, TextInput, Divider, List, Badge } from 'react-native-paper';
 import WeekView from 'react-native-week-view';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { CourseContext } from '../store/CourseContext'; 
 import { Picker } from '@react-native-picker/picker'
 
@@ -118,12 +118,76 @@ const generateCalendarEvents = (courses) => {
 export default function CourseViewer() {
   const router = useRouter();
 
-  const { globalCourses, selectedCourses, toggleCourse } = useContext(CourseContext);
+  const { globalCourses, setGlobalCourses, selectedCourses, toggleCourse } = useContext(CourseContext);
+  // Catch the term info we passed from the previous screen
+  const { termName, termCode } = useLocalSearchParams();
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
   const [scheduleModalVisible, setScheduleModalVisible] = useState(false); // State for our new modal
   const [displayCourses, setDisplayCourses] = useState({});
 
   const [eventModalVisible, setEventModalVisible] = useState(false);
   const [selectedEventCourse, setSelectedEventCourse] = useState(null);
+
+const handleRefresh = async () => {
+    if (!termName || !termCode) return;
+    setIsRefreshing(true);
+    
+    try {
+      const apiUrl = `https://udmadvisor-server.onrender.com/api/fetch_courses?term_name=${encodeURIComponent(termName)}&term_code=${termCode}&refresh_course_data=true`;
+      const response = await fetch(apiUrl);
+      
+      // 1. Read the raw response text first (in case the Python server crashed entirely and sent HTML)
+      const rawText = await response.text();
+      
+      let data;
+      try {
+        data = JSON.parse(rawText);
+      } catch (e) {
+        throw new Error("The server crashed or took too long to respond.");
+      }
+
+      // 2. THE FIX: If Python sent an error, read its EXACT message instead of hiding it!
+      if (!response.ok) {
+        const serverError = data?.error?.message || `HTTP Status ${response.status} Error`;
+        throw new Error(serverError);
+      }
+
+      const groupedCourses = {};
+      data.forEach(course => {
+        const category = course.course_description || course.subjectDescription || "Other";
+        if (!groupedCourses[category]) groupedCourses[category] = [];
+        
+        groupedCourses[category].push({
+          course_id: course.course_id,
+          subject: course.subject,
+          course_number: course.course_number,
+          course_name: course.course_name,
+          section: course.section || "N/A",            
+          credits: course.credits ?? 0,                
+          faculty: course.faculty || [],               
+          meeting_times: course.meeting_times || [],
+          current_enrollment: course.current_enrollment || 0,
+          enrollment_is_full: course.enrollment_is_full || false,
+          maximumEnrollment: course.maximum_enrollment || 0,
+          seatsAvailable: course.seats_available || 0
+        });
+      });
+
+      setGlobalCourses(groupedCourses);
+      
+      // Added a quick success pop-up so you know it worked!
+      Alert.alert("Success", "Live enrollment data updated!"); 
+      
+    } catch (error) {
+      console.error("Refresh Error:", error);
+      // Display the REAL error to the user!
+      Alert.alert("Refresh Failed", error.message);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
 
   useEffect(() => {
       // Fallback to an empty object if globalCourses is null/undefined during loading
@@ -241,16 +305,40 @@ export default function CourseViewer() {
                   Credits: {course.credits}
                 </Text>
               </View>
-
-              {/* 3. Faculty / Instructor Row */}
+{           /* 3. Faculty / Instructor Row */}
               <View style={{ marginTop: 8, borderTopWidth: 1, borderTopColor: '#eee', paddingTop: 5 }}>
                 <Text style={{ fontSize: 13, color: '#666' }}>
-                  {/* Since Python sends an array of strings like ["Joe Pia"], we just join them! */}
                   👤 Faculty: {course.faculty && course.faculty.length > 0 
-                    ? course.faculty.join(', ') 
+                    ? [...new Set(course.faculty)].join(', ') 
                     : "Staff"}
                 </Text>
               </View>
+
+              {/* 4. Enrollment Status Row */}
+              <View style={{ marginTop: 8, borderTopWidth: 1, borderTopColor: '#eee', paddingTop: 5 }}>
+                <Text style={{ fontSize: 13, color: '#666' }}>
+                  {(() => {
+                    const enrl = course.current_enrollment || 0;
+                    const isFull = course.enrollment_is_full;
+                    const max = course.maximumEnrollment || 0;
+                    const seats = course.seatsAvailable || 0;
+
+                    // SCENARIO 1: If you fix Python later and it sends the Max Capacity
+                    if (max > 0) {
+                      if (isFull || enrl >= max || seats <= 0) {
+                        return <Text>📊 Enrollment: {enrl} / {max} <Text style={{ color: '#A5093E', fontWeight: 'bold' }}> (Full)</Text></Text>;
+                      }
+                      return <Text>📊 Enrollment: {enrl} / {max} <Text style={{ color: '#166534', fontWeight: 'bold' }}> ({seats} Seats Available)</Text></Text>;
+                    }
+
+                    // SCENARIO 2: What Python is sending RIGHT NOW (No Max Capacity)
+                    if (isFull) {
+                      return <Text>📊 Enrollment: {enrl} Enrolled <Text style={{ color: '#A5093E', fontWeight: 'bold' }}> (Full)</Text></Text>;
+                    }
+                    return <Text>📊 Enrollment: {enrl} Enrolled <Text style={{ color: '#166534', fontWeight: 'bold' }}> (Open)</Text></Text>;
+                  })()}
+                </Text>
+              </View>   
 
             </Card.Content>
             <Card.Actions>
@@ -313,6 +401,15 @@ export default function CourseViewer() {
         <Appbar.BackAction onPress={() => router.back()} color="#fff" />
         <Appbar.Content title="Browse Courses" color="#fff" />
 
+        {/* --- NEW REFRESH BUTTON --- */}
+        {isRefreshing ? (
+          <View style={{ padding: 12 }}>
+            <ActivityIndicator color="#fff" size="small" />
+          </View>
+        ) : (
+          <Appbar.Action icon="refresh" color="#fff" onPress={handleRefresh} />
+        )}
+
         {/* The Inventory/Cart Button */}
         <View>
           <Appbar.Action icon="calendar" color="#fff" onPress={() => setScheduleModalVisible(true)} />
@@ -323,7 +420,7 @@ export default function CourseViewer() {
           )}
         </View>
 
-        <Appbar.Action icon="filter-variant" color="#fff" onPress={() => setFilterVisible(true)} />
+        <Appbar.Action icon="magnify" color="#fff" onPress={() => setFilterVisible(true)} />
       </Appbar.Header>
 
       {/* Replaced ScrollView with FlatList */}
@@ -483,6 +580,25 @@ export default function CourseViewer() {
                   </Text>
                   <Text style={{ color: '#555', marginBottom: 8, fontSize: 15 }}>
                     <Text style={{ fontWeight: 'bold' }}>Instructor:</Text> {selectedEventCourse.faculty && selectedEventCourse.faculty.length > 0 ? selectedEventCourse.faculty.join(', ') : "Staff"}
+                  </Text>
+                  
+              {/* ENROLLMENT LINE FOR THE POP-UP */}
+                  <Text style={{ color: '#555', marginBottom: 8, fontSize: 15 }}>
+                    {(() => {
+                      const max = selectedEventCourse.maximumEnrollment || selectedEventCourse.maximum_enrollment || 0;
+                      const enrl = selectedEventCourse.enrollment || 0;
+                      const seats = selectedEventCourse.seatsAvailable || selectedEventCourse.seats_available || 0;
+
+                      if (max === 0) {
+                        return <><Text style={{ fontWeight: 'bold' }}>Enrollment:</Text> <Text style={{ fontStyle: 'italic', color: '#666' }}>Data Unavailable</Text></>;
+                      }
+                      
+                      if (enrl >= max || seats <= 0) {
+                        return <><Text style={{ fontWeight: 'bold' }}>Enrollment:</Text> {enrl} / {max} <Text style={{ color: '#A5093E', fontWeight: 'bold' }}> (Full)</Text></>;
+                      }
+                      
+                      return <><Text style={{ fontWeight: 'bold' }}>Enrollment:</Text> {enrl} / {max} <Text style={{ color: '#166534', fontWeight: 'bold' }}> ({seats} Available)</Text></>;
+                    })()}
                   </Text>
                 </View>
 
