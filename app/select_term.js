@@ -98,10 +98,19 @@ const handleSelectTerm = async () => {
       // 4. Lock the tiny, optimized data into the Vault
       setGlobalCourses(groupedCourses);
       
-      // Give the garbage collector 150ms to breathe before sliding the screen
+// Give the garbage collector 150ms to breathe before sliding the screen
       setTimeout(() => {
         setLoading(false);
-        router.push('/courseviewer');
+        
+        // THE FIX: Pass the term info along with the route!
+        router.push({
+          pathname: '/courseviewer',
+          params: {
+            termName: termObj.description,
+            termCode: termObj.code
+          }
+        });
+        
       }, 150);
 
     } catch (error) {
