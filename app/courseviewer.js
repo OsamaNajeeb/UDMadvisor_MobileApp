@@ -1,10 +1,9 @@
 import React, { useState, useContext, useEffect } from 'react';
-import { View, StyleSheet, Modal, FlatList, Alert, ActivityIndicator } from 'react-native';
-import { Text, Appbar, Card, Button, TextInput, Divider, List, Badge } from 'react-native-paper';
+import { View, StyleSheet, Modal, FlatList, Alert, ActivityIndicator, ScrollView } from 'react-native';
+import { Text, Appbar, Card, Button, TextInput, Divider, List, Badge, Searchbar } from 'react-native-paper';
 import WeekView from 'react-native-week-view';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { CourseContext } from '../store/CourseContext'; 
-import { Picker } from '@react-native-picker/picker'
 
 // NEW HELPER: Always find the Monday of the current week!
 const getCurrentMonday = () => {
@@ -123,11 +122,60 @@ export default function CourseViewer() {
   const { termName, termCode } = useLocalSearchParams();
   const [isRefreshing, setIsRefreshing] = useState(false);
 
+
   const [scheduleModalVisible, setScheduleModalVisible] = useState(false); // State for our new modal
   const [displayCourses, setDisplayCourses] = useState({});
 
   const [eventModalVisible, setEventModalVisible] = useState(false);
   const [selectedEventCourse, setSelectedEventCourse] = useState(null);
+
+  // --- NEW: GOOGLE-STYLE LIVE SEARCH STATE ---
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // --- NEW: THE SEARCH ENGINE ---
+  // This runs instantly every single time the user types or deletes a letter!
+  useEffect(() => {
+    if (!globalCourses) return;
+
+    // If the search bar is empty, show all courses
+    if (searchQuery.trim() === '') {
+      setDisplayCourses(globalCourses);
+      return;
+    }
+
+    const query = searchQuery.toLowerCase();
+    const newFilteredList = {};
+
+    // Look through every category (e.g., "Accounting", "Biology")
+    Object.keys(globalCourses).forEach(category => {
+      const filteredCourses = globalCourses[category].filter(course => {
+        
+        // 1. Check if the Subject matches (e.g., "ACC")
+        const matchSubject = course.subject && course.subject.toLowerCase().includes(query);
+        
+        // 2. Check if the Course Number matches (e.g., "2010")
+        const matchNumber = course.course_number && course.course_number.toString().toLowerCase().includes(query);
+        
+        // 3. Check if the Course Title matches (e.g., "Computer Science")
+        const matchName = course.course_name && course.course_name.toLowerCase().includes(query);
+        
+        // 4. Check if ANY Attribute matches (e.g., "Online", "Full Time")
+        const matchAttribute = course.attributes && course.attributes.some(attr => 
+          attr.description && attr.description.toLowerCase().includes(query)
+        );
+
+        // If ANY of those 4 things contain the typed letters, keep the course!
+        return matchSubject || matchNumber || matchName || matchAttribute;
+      });
+
+      // If this category still has courses after the filter, add it to the screen
+      if (filteredCourses.length > 0) {
+        newFilteredList[category] = filteredCourses;
+      }
+    });
+
+    setDisplayCourses(newFilteredList);
+  }, [searchQuery, globalCourses]);
 
 const handleRefresh = async () => {
     if (!termName || !termCode) return;
@@ -198,6 +246,9 @@ const handleRefresh = async () => {
 
   const [filterVisible, setFilterVisible] = useState(false);
   const [searchSubject, setSearchSubject] = useState('');
+  // --- NEW: STATE FOR THE SEARCHABLE DROPDOWN ---
+  const [searchSubjectText, setSearchSubjectText] = useState('');
+  const [showSubjectList, setShowSubjectList] = useState(false);
   const [searchNumber, setSearchNumber] = useState('');
   const [searchTitle, setSearchTitle] = useState('');
   const [searchAttribute, setSearchAttribute] = useState('');
@@ -436,26 +487,30 @@ const handleRefresh = async () => {
         windowSize={5}
         // FlatList lets us put the title and buttons inside a Header component so they scroll naturally
         ListHeaderComponent={
-          <>
-            {/* <Button 
-              icon="filter" 
-              mode="outlined" 
-              textColor="#002d72"
-              style={styles.openFilterButton}
-              onPress={() => setFilterVisible(true)}
-            >
-              Filter Classes
-            </Button> */}
-            <Divider style={{ marginVertical: 15 }} />
-            <Text variant="titleLarge" style={styles.pageTitle}>All Courses</Text>
-            
-            {sortedSubjects.length === 0 && (
-              <Text style={{ textAlign: 'center', marginTop: 20, color: '#666' }}>
-                No courses found.
-              </Text>
-            )}
-          </>
-        }
+                  <>
+                    {/* --- NEW GOOGLE-STYLE SEARCH BAR --- */}
+                    {/* <View style={{ paddingTop: 5, paddingBottom: 5 }}>
+                      <Searchbar
+                        placeholder="Search Subjects, Titles, Numbers, or Attributes..."
+                        onChangeText={setSearchQuery}
+                        value={searchQuery}
+                        style={{ backgroundColor: '#fff', borderWidth: 1, borderColor: '#ccc', borderRadius: 8 }}
+                        inputStyle={{ color: '#333' }}
+                        iconColor="#A5093E"
+                        elevation={0}
+                      />
+                    </View> */}
+
+                    <Divider style={{ marginVertical: 15 }} />
+                    <Text variant="titleLarge" style={styles.pageTitle}>All Courses</Text>
+                    
+                    {sortedSubjects.length === 0 && (
+                      <Text style={{ textAlign: 'center', marginTop: 20, color: '#666' }}>
+                        No courses found matching "{searchQuery}".
+                      </Text>
+                    )}
+                  </>
+                }
       />
 
       <Modal visible={filterVisible} animationType="slide" transparent={true} onRequestClose={() => setFilterVisible(false)}>
@@ -465,29 +520,69 @@ const handleRefresh = async () => {
             <Text variant="titleMedium" style={{ marginTop: 10, marginBottom: 5, color: '#333' }}>
               Subject
             </Text>
-            <View style={{ backgroundColor: '#fff', borderWidth: 1, borderColor: '#79747e', borderRadius: 4, marginBottom: 15 }}>
-              <Picker
-                selectedValue={searchSubject}
-                onValueChange={(itemValue) => setSearchSubject(itemValue)}
-              >
-                {/* The Default "All" Option */}
-                <Picker.Item label="Show all Subjects" value="" />
-                
-                {/* Dynamically generate the dropdown using BOTH the Acronym and the Full Title */}
-                {Object.keys(globalCourses || {}).sort().map((categoryName) => {
-                  
-                  // Peek at the first course in the category array to grab its acronym (e.g., "ACC")
-                  const acronym = globalCourses[categoryName][0]?.subject || "";
+{/* --- NEW SEARCHABLE SUBJECT DROPDOWN --- */}
+            <View style={{ zIndex: 1000, marginBottom: 15 }}>
+              <TextInput
+                mode="outlined"
+                label="Subject (Type to search)"
+                value={searchSubjectText}
+                activeOutlineColor="#002d72"
+                onChangeText={(text) => {
+                  setSearchSubjectText(text);
+                  setShowSubjectList(true); // Open the list when typing
+                  if (text === '') setSearchSubject(''); // Clear actual filter if they delete text
+                }}
+                onFocus={() => setShowSubjectList(true)} // Open list when they click
+                right={
+                  <TextInput.Icon 
+                    icon={showSubjectList ? "chevron-up" : "chevron-down"} 
+                    onPress={() => setShowSubjectList(!showSubjectList)} 
+                  />
+                }
+              />
 
-                  return (
-                    <Picker.Item 
-                      key={acronym} 
-                      label={`${acronym}: ${categoryName}`} // What the user sees: "ACC: Accounting"
-                      value={acronym}                       // What the filter uses: "ACC"
+              {/* THE DROPDOWN LIST */}
+              {showSubjectList && (
+                <View style={{ maxHeight: 160, borderWidth: 1, borderColor: '#ccc', backgroundColor: '#fff', borderRadius: 4, marginTop: 4 }}>
+                  <ScrollView nestedScrollEnabled={true} keyboardShouldPersistTaps="handled">
+                    
+                    <List.Item
+                      title="Scroll Down"
+                      titleStyle={{ fontStyle: 'italic', color: '#666' }}
+                      onPress={() => {
+                        setSearchSubject('');
+                        setSearchSubjectText('');
+                        setShowSubjectList(false);
+                      }}
                     />
-                  );
-                })}
-              </Picker>
+                    
+                    <Divider />
+
+                    {Object.keys(globalCourses || {}).sort().map((categoryName) => {
+                      const acronym = globalCourses[categoryName][0]?.subject || "";
+                      const label = `${acronym}: ${categoryName}`;
+
+                      // THE MAGIC: Hide this option if it doesn't match what they are typing!
+                      if (searchSubjectText && !label.toLowerCase().includes(searchSubjectText.toLowerCase())) {
+                        return null; 
+                      }
+
+                      return (
+                        <List.Item
+                          key={acronym}
+                          title={label}
+                          onPress={() => {
+                            // When clicked, lock in the search!
+                            setSearchSubject(acronym);
+                            setSearchSubjectText(label);
+                            setShowSubjectList(false);
+                          }}
+                        />
+                      );
+                    })}
+                  </ScrollView>
+                </View>
+              )}
             </View>
             <TextInput mode="outlined" label="Course No." value={searchNumber} onChangeText={setSearchNumber} style={styles.fullInput} activeOutlineColor="#002d72" keyboardType="numeric" />
             <TextInput mode="outlined" label="Course Title" value={searchTitle} onChangeText={setSearchTitle} style={styles.fullInput} activeOutlineColor="#002d72" />
@@ -539,7 +634,10 @@ const handleRefresh = async () => {
                     setEventModalVisible(true);
                   }}
                 />
-                {selectedCourses.some(c => c.meeting_times?.some(m => !m.beginTime && !m.meeting_begin_time)) && (
+                {selectedCourses.some(c => c.meeting_times?.some(m => {
+   const meet = m.meetingTime || m;
+   return !meet.beginTime && !meet.meeting_begin_time;
+})) && (
                   <Text style={{ marginTop: 10, fontSize: 12, color: '#A5093E', fontWeight: 'bold', textAlign: 'center' }}>
                     * Note: You also have asynchronous online classes selected.
                   </Text>
