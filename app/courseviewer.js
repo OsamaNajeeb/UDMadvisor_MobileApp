@@ -4,6 +4,7 @@ import { Text, Appbar, Card, Button, TextInput, Divider, List, Badge, Searchbar 
 import WeekView from 'react-native-week-view';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { CourseContext } from '../store/CourseContext'; 
+import * as Clipboard from 'expo-clipboard';
 
 // NEW HELPER: Always find the Monday of the current week!
 const getCurrentMonday = () => {
@@ -278,6 +279,56 @@ const handleRefresh = async () => {
     });
     setDisplayCourses(newFilteredList);
     setFilterVisible(false);
+  };
+
+  // --- NEW: COPY TO CLIPBOARD FUNCTION ---
+  const copyScheduleToClipboard = async () => {
+    if (selectedCourses.length === 0) {
+      Alert.alert("Empty Schedule", "You don't have any courses to copy yet!");
+      return;
+    }
+
+    let scheduleText = "🎓 My Planned Schedule:\n\n";
+
+    selectedCourses.forEach((course) => {
+      scheduleText += `${course.subject} ${course.course_number} - ${course.course_name}\n`;
+      scheduleText += `CRN: ${course.course_id} | Section: ${course.section} | Credits: ${course.credits}\n`;
+
+      // Grab the meeting times
+      if (course.meeting_times && course.meeting_times.length > 0) {
+        course.meeting_times.forEach((meetingObj) => {
+          const meeting = meetingObj.meetingTime || meetingObj;
+          const begin = meeting.beginTime || meeting.meeting_begin_time;
+          const end = meeting.endTime || meeting.meeting_end_time;
+
+          let days = "";
+          if (meeting.monday) days += "M ";
+          if (meeting.tuesday) days += "T ";
+          if (meeting.wednesday) days += "W ";
+          if (meeting.thursday) days += "Th ";
+          if (meeting.friday) days += "F ";
+          if (meeting.saturday) days += "Sat ";
+
+          if (begin && end) {
+            scheduleText += `🕒 ${days.trim()} | ${formatTime(begin)} - ${formatTime(end)}\n`;
+          } else {
+            scheduleText += `⏳ Asynchronous (No scheduled time)\n`;
+          }
+        });
+      } else {
+        scheduleText += `⏳ Asynchronous / TBD\n`;
+      }
+      
+      scheduleText += `\n`; // Add a blank line between courses
+    });
+
+    // Add the total credits at the bottom
+    const totalCredits = selectedCourses.reduce((sum, course) => sum + (course.credits || 0), 0);
+    scheduleText += `Total Credits: ${totalCredits}`;
+
+    // Save to the phone's clipboard!
+    await Clipboard.setStringAsync(scheduleText);
+    Alert.alert("Copied!", "Your schedule has been copied to your clipboard.");
   };
 
   // Convert our object keys ("Accounting", "Biology") to an Array so FlatList can read it
@@ -645,7 +696,18 @@ const handleRefresh = async () => {
               </View>
             )}
 
-            <View style={{ marginTop: 20, alignItems: 'flex-end' }}>
+          {/* --- NEW MODAL BUTTONS (COPY & CLOSE) --- */}
+            <View style={{ marginTop: 20, flexDirection: 'row', justifyContent: 'space-between' }}>
+              <Button 
+                mode="outlined" 
+                icon="content-copy" 
+                textColor="#002d72" 
+                style={{ borderColor: '#002d72' }}
+                onPress={copyScheduleToClipboard}
+              >
+                Copy to Clipboard
+              </Button>
+              
               <Button mode="contained" buttonColor="#002d72" onPress={() => setScheduleModalVisible(false)}>
                 Close
               </Button>
@@ -680,11 +742,14 @@ const handleRefresh = async () => {
                     <Text style={{ fontWeight: 'bold' }}>Instructor:</Text> {selectedEventCourse.faculty && selectedEventCourse.faculty.length > 0 ? selectedEventCourse.faculty.join(', ') : "Staff"}
                   </Text>
                   
-              {/* ENROLLMENT LINE FOR THE POP-UP */}
+{/* ENROLLMENT LINE FOR THE POP-UP */}
                   <Text style={{ color: '#555', marginBottom: 8, fontSize: 15 }}>
                     {(() => {
                       const max = selectedEventCourse.maximumEnrollment || selectedEventCourse.maximum_enrollment || 0;
-                      const enrl = selectedEventCourse.enrollment || 0;
+                      
+                      // THE FIX: Changed to current_enrollment!
+                      const enrl = selectedEventCourse.current_enrollment || 0; 
+                      
                       const seats = selectedEventCourse.seatsAvailable || selectedEventCourse.seats_available || 0;
 
                       if (max === 0) {
