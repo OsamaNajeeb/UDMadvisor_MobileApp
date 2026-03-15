@@ -241,16 +241,40 @@ export default function CourseViewer() {
                   Credits: {course.credits}
                 </Text>
               </View>
-
-              {/* 3. Faculty / Instructor Row */}
+{           /* 3. Faculty / Instructor Row */}
               <View style={{ marginTop: 8, borderTopWidth: 1, borderTopColor: '#eee', paddingTop: 5 }}>
                 <Text style={{ fontSize: 13, color: '#666' }}>
-                  {/* Since Python sends an array of strings like ["Joe Pia"], we just join them! */}
                   👤 Faculty: {course.faculty && course.faculty.length > 0 
-                    ? course.faculty.join(', ') 
+                    ? [...new Set(course.faculty)].join(', ') 
                     : "Staff"}
                 </Text>
               </View>
+
+              {/* 4. Enrollment Status Row */}
+              <View style={{ marginTop: 8, borderTopWidth: 1, borderTopColor: '#eee', paddingTop: 5 }}>
+                <Text style={{ fontSize: 13, color: '#666' }}>
+                  {(() => {
+                    const enrl = course.current_enrollment || 0;
+                    const isFull = course.enrollment_is_full;
+                    const max = course.maximumEnrollment || 0;
+                    const seats = course.seatsAvailable || 0;
+
+                    // SCENARIO 1: If you fix Python later and it sends the Max Capacity
+                    if (max > 0) {
+                      if (isFull || enrl >= max || seats <= 0) {
+                        return <Text>📊 Enrollment: {enrl} / {max} <Text style={{ color: '#A5093E', fontWeight: 'bold' }}> (Full)</Text></Text>;
+                      }
+                      return <Text>📊 Enrollment: {enrl} / {max} <Text style={{ color: '#166534', fontWeight: 'bold' }}> ({seats} Seats Available)</Text></Text>;
+                    }
+
+                    // SCENARIO 2: What Python is sending RIGHT NOW (No Max Capacity)
+                    if (isFull) {
+                      return <Text>📊 Enrollment: {enrl} Enrolled <Text style={{ color: '#A5093E', fontWeight: 'bold' }}> (Full)</Text></Text>;
+                    }
+                    return <Text>📊 Enrollment: {enrl} Enrolled <Text style={{ color: '#166534', fontWeight: 'bold' }}> (Open)</Text></Text>;
+                  })()}
+                </Text>
+              </View>   
 
             </Card.Content>
             <Card.Actions>
@@ -483,6 +507,25 @@ export default function CourseViewer() {
                   </Text>
                   <Text style={{ color: '#555', marginBottom: 8, fontSize: 15 }}>
                     <Text style={{ fontWeight: 'bold' }}>Instructor:</Text> {selectedEventCourse.faculty && selectedEventCourse.faculty.length > 0 ? selectedEventCourse.faculty.join(', ') : "Staff"}
+                  </Text>
+                  
+              {/* ENROLLMENT LINE FOR THE POP-UP */}
+                  <Text style={{ color: '#555', marginBottom: 8, fontSize: 15 }}>
+                    {(() => {
+                      const max = selectedEventCourse.maximumEnrollment || selectedEventCourse.maximum_enrollment || 0;
+                      const enrl = selectedEventCourse.enrollment || 0;
+                      const seats = selectedEventCourse.seatsAvailable || selectedEventCourse.seats_available || 0;
+
+                      if (max === 0) {
+                        return <><Text style={{ fontWeight: 'bold' }}>Enrollment:</Text> <Text style={{ fontStyle: 'italic', color: '#666' }}>Data Unavailable</Text></>;
+                      }
+                      
+                      if (enrl >= max || seats <= 0) {
+                        return <><Text style={{ fontWeight: 'bold' }}>Enrollment:</Text> {enrl} / {max} <Text style={{ color: '#A5093E', fontWeight: 'bold' }}> (Full)</Text></>;
+                      }
+                      
+                      return <><Text style={{ fontWeight: 'bold' }}>Enrollment:</Text> {enrl} / {max} <Text style={{ color: '#166534', fontWeight: 'bold' }}> ({seats} Available)</Text></>;
+                    })()}
                   </Text>
                 </View>
 

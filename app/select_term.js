@@ -67,23 +67,32 @@ const handleSelectTerm = async () => {
 // 3. Sort AND SHRINK the raw data
       const groupedCourses = {};
       data.forEach(course => {
+        // console.log("WHAT DID PYTHON SEND?:", course);
         const category = course.course_description || course.subjectDescription || "Other";
         
         if (!groupedCourses[category]) {
           groupedCourses[category] = [];
         }
 
-        // Keep it simple! Python already cleaned these keys for us.
+      // Keep it simple! Python already cleaned these keys for us.
         groupedCourses[category].push({
           course_id: course.course_id,
           subject: course.subject,
           course_number: course.course_number,
           course_name: course.course_name,
-          section: course.section || "N/A",            // Python already named this 'section'
-          credits: course.credits ?? 0,                // Python already calculated 'credits'
-          faculty: course.faculty || [],               // Python already made this a string array
-          meeting_times: course.meeting_times || []
-        });
+          section: course.section || "N/A",            
+          credits: course.credits ?? 0,                
+          faculty: course.faculty || [],               
+          meeting_times: course.meeting_times || [],
+          
+          // THE FIX: Catch the exact variables Python is sending!
+          current_enrollment: course.current_enrollment || 0,
+          enrollment_is_full: course.enrollment_is_full || false,
+          
+          // Leave these here just in case you fix Python later!
+          maximumEnrollment: course.maximum_enrollment || 0,
+          seatsAvailable: course.seats_available || 0
+        });  
       });
 
       // 4. Lock the tiny, optimized data into the Vault
