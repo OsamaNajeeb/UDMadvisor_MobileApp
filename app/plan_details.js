@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { View, ScrollView, StyleSheet, ActivityIndicator, Alert } from 'react-native';
+import { View, ScrollView, StyleSheet, ActivityIndicator, Alert, Platform } from 'react-native';
 import { Text, Appbar, Button, Card, Divider } from 'react-native-paper';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
 
 // Using the working API URL!
 const API_BASE_URL = "https://scraper2-nzef.onrender.com";
@@ -77,6 +79,79 @@ export default function PlanDetails() {
     fetchPlanDetails();
   }, [plan_id, year_id]);
 
+// --- UPDATED: PDF EXPORT ENGINE (DIRECT TO STORAGE) ---
+  const exportToPDF = async () => {
+    try {
+      Alert.alert("Generating PDF", "Please wait a moment while we build your file...");
+
+      // 1. Ask the server to build the PDF
+      const response = await fetch(`${API_BASE_URL}/api/export_plan_to_pdf`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ plan: plan }),
+      });
+
+      if (!response.ok) throw new Error("Failed to create PDF on server");
+
+      // 2. Grab the raw file data
+      const blob = await response.blob();
+      
+      // 3. Translate it into Base64
+      const reader = new FileReader();
+      reader.onload = async () => {
+        try {
+          const base64data = reader.result.split(',')[1];
+          const safeName = (plan.program || "Academic").replace(/[^a-zA-Z0-9]/g, '_');
+          
+          if (Platform.OS === 'android') {
+            // --- ANDROID DIRECT STORAGE SAVING ---
+            // Ask the user which folder they want to save to (e.g., Downloads)
+            const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+            
+            if (permissions.granted) {
+              // Create the empty PDF file in their chosen folder
+              const newUri = await FileSystem.StorageAccessFramework.createFileAsync(
+                permissions.directoryUri,
+                `${safeName}_Plan.pdf`,
+                'application/pdf'
+              );
+              
+              // Write the Base64 data into that new file!
+              await FileSystem.writeAsStringAsync(newUri, base64data, {
+                encoding: 'base64',
+              });
+              
+              Alert.alert("Saved!", "The PDF has been saved to your phone's storage.");
+            } else {
+              Alert.alert("Cancelled", "File was not saved.");
+            }
+          } else {
+            // --- iOS FALLBACK ---
+            // iOS forces the use of the Share sheet to save to the "Files" app
+            const fileUri = `${FileSystem.documentDirectory}${safeName}_Plan.pdf`;
+            await FileSystem.writeAsStringAsync(fileUri, base64data, { encoding: 'base64' });
+            
+            if (await Sharing.isAvailableAsync()) {
+              await Sharing.shareAsync(fileUri, { mimeType: 'application/pdf' });
+            }
+          }
+        } catch (e) {
+          Alert.alert("Error", "Could not save the PDF file to your phone.");
+          console.error(e);
+        }
+      };
+      
+      // Trigger the translation
+      reader.readAsDataURL(blob);
+
+    } catch (err) {
+      console.error(err);
+      Alert.alert("Export Failed", "Could not export the PDF from the server.");
+    }
+  };
+
   if (loading) {
     return (
       <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
@@ -105,11 +180,12 @@ export default function PlanDetails() {
           {plan.minor ? <Text variant="titleMedium" style={styles.minorText}>{plan.minor}</Text> : null}
           <Text style={styles.yearText}>{plan.year}</Text>
 
-          <View style={styles.buttonRow}>
+        <View style={styles.buttonRow}>
             <Button 
               mode="contained" 
               buttonColor="#002d72" 
-              onPress={() => Alert.alert("Coming Soon", "PDF Export requires file-system access which will be added later!")}
+              icon="file-pdf-box"
+              onPress={exportToPDF}
             >
               Export to PDF
             </Button>
