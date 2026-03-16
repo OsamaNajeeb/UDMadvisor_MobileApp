@@ -1,6 +1,6 @@
 import { Stack } from 'expo-router';
 // 1. Import the Vault!
-import { CourseProvider } from '../store/CourseContext'; 
+import { CourseProvider } from '../store/CourseContext';
 
 export default function Layout() {
   return (
@@ -19,6 +19,7 @@ export default function Layout() {
         {/* Make sure these match your exact file names (without the .js) */}
         <Stack.Screen name="select_term" options={{headerShown: false}} />
         <Stack.Screen name="courseviewer" options={{headerShown: false}} /> 
+        <Stack.Screen name="plans" options={{headerShown: false}} />
       </Stack>
     </CourseProvider>
   );
