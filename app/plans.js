@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, FlatList, Modal, Alert, ActivityIndicator } from 'react-native';
-import { Text, Appbar, Card, Button, TextInput, Divider } from 'react-native-paper';
+import { View, StyleSheet, FlatList, Modal, Alert, ActivityIndicator, ScrollView } from 'react-native';
+import { Text, Appbar, Card, Button, TextInput, Divider, List } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import { Picker } from '@react-native-picker/picker';
 
 // Cloud Server URL
-const API_BASE_URL = "https://udmadvisor-server.onrender.com";
+const API_BASE_URL = "https://scraper2-nzef.onrender.com";
 
 // --- NEW: HARDCODED PROGRAM LIST FROM UTILS-STORE ---
 const PROGRAM_LIST = [
@@ -79,6 +79,10 @@ export default function PlansViewer() {
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [selectedYearId, setSelectedYearId] = useState(null);
+
+  // --- NEW: STATE FOR THE SEARCHABLE DROPDOWN ---
+  const [searchProgramText, setSearchProgramText] = useState('');
+  const [showProgramList, setShowProgramList] = useState(false);
 
 // 1. Fetch the plans from the database when the screen loads
   useEffect(() => {
@@ -191,24 +195,74 @@ export default function PlansViewer() {
 
       <View style={styles.content}>
         
-        {/* SEARCH & FILTER SECTION */}
+{/* SEARCH & FILTER SECTION */}
         <View style={styles.filterContainer}>
-            <View style={styles.pickerContainer}>
-                <Picker
-                selectedValue={programFilter}
-                onValueChange={(itemValue) => setProgramFilter(itemValue)}
-                >
-                <Picker.Item label="Select a program..." value="" color="#666" />
-                
-                {/* THE FIX: Use the hardcoded list! */}
-                {PROGRAM_LIST.map((prog, index) => (
-                    <Picker.Item key={index} label={prog} value={prog} />
-                ))}
-                
-                </Picker>
+          
+          {/* --- NEW SEARCHABLE PROGRAM DROPDOWN --- */}
+          <View style={{ zIndex: 1000, marginBottom: 15 }}>
+            <TextInput
+              mode="outlined"
+              label="Program (Type to search)"
+              value={searchProgramText}
+              activeOutlineColor="#002d72"
+              onChangeText={(text) => {
+                setSearchProgramText(text);
+                setShowProgramList(true); // Open the list when typing
+                if (text === '') setProgramFilter(''); // Clear actual filter if they delete text
+              }}
+              onFocus={() => setShowProgramList(true)} // Open list when they click
+              right={
+                <TextInput.Icon 
+                  icon={showProgramList ? "chevron-up" : "chevron-down"} 
+                  onPress={() => setShowProgramList(!showProgramList)} 
+                />
+              }
+            />
+
+            {/* THE DROPDOWN LIST */}
+            {showProgramList && (
+              <View style={{ maxHeight: 200, borderWidth: 1, borderColor: '#ccc', backgroundColor: '#fff', borderRadius: 4, marginTop: 4 }}>
+                <ScrollView nestedScrollEnabled={true} keyboardShouldPersistTaps="handled">
+                  
+                  <List.Item
+                    title="Show all Programs"
+                    titleStyle={{ fontStyle: 'italic', color: '#666' }}
+                    onPress={() => {
+                      setProgramFilter('');
+                      setSearchProgramText('');
+                      setShowProgramList(false);
+                    }}
+                  />
+                  
+                  <Divider />
+
+                  {PROGRAM_LIST.map((prog, index) => {
+                    // THE MAGIC: Hide this option if it doesn't match what they are typing!
+                    if (searchProgramText && !prog.toLowerCase().includes(searchProgramText.toLowerCase())) {
+                      return null; 
+                    }
+
+                    return (
+                      <List.Item
+                        key={index}
+                        title={prog}
+                        titleNumberOfLines={2} // Allows long titles like the 3+3 programs to wrap nicely
+                        onPress={() => {
+                          // When clicked, lock in the search!
+                          setProgramFilter(prog);
+                          setSearchProgramText(prog);
+                          setShowProgramList(false);
+                        }}
+                      />
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            )}
           </View>
 
-          <TextInput
+          {/* This is your existing Entry Year input, leave this alone! */}
+          {/* <TextInput
             mode="outlined"
             label="Entry Year (e.g., 2024)"
             value={entryYear}
@@ -216,7 +270,7 @@ export default function PlansViewer() {
             keyboardType="numeric"
             activeOutlineColor="#002d72"
             style={styles.yearInput}
-          />
+          /> */}
         </View>
 
         <Divider style={{ marginBottom: 15 }} />
