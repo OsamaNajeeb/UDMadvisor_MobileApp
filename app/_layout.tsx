@@ -21,6 +21,7 @@ export default function Layout() {
         <Stack.Screen name="courseviewer" options={{headerShown: false}} /> 
         <Stack.Screen name="plans" options={{headerShown: false}} />
         <Stack.Screen name="plan_details" options={{headerShown: false}} />
+        <Stack.Screen name="chatbot" options={{headerShown: false}} />
       </Stack>
     </CourseProvider>
   );
