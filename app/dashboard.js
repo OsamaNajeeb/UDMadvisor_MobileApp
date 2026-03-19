@@ -2,6 +2,7 @@ import React from 'react';
 import { View, ScrollView, StyleSheet, Image } from 'react-native';
 import { Text, Button, Card, Avatar, Appbar, useTheme } from 'react-native-paper';
 import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 
 const DASHBOARD_OPTIONS = [
@@ -30,10 +31,11 @@ const DASHBOARD_OPTIONS = [
 
 export default function Dashboard() {
   const router = useRouter();
+  const insets = useSafeAreaInsets(); 
   const theme = useTheme();
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingBottom: insets.bottom > 0 ? insets.bottom : 20 }]}>
       {/* 1. The Red Header */}
       <Appbar.Header style={{ backgroundColor: "#A5093E"}}>
         <Appbar.Content title="UDM Advisor" color="#fff" />

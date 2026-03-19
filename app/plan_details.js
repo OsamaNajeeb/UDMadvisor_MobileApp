@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { View, ScrollView, StyleSheet, ActivityIndicator, Alert, Platform } from 'react-native';
+import { View, ScrollView, StyleSheet, ActivityIndicator, Alert, Platform, Modal } from 'react-native';
 import { Text, Appbar, Button, Card, Divider } from 'react-native-paper';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
+import * as Clipboard from 'expo-clipboard';
 
 // Using the working API URL!
 const API_BASE_URL = "https://scraper2-nzef.onrender.com";
@@ -46,6 +47,10 @@ export default function PlanDetails() {
 
   const [plan, setPlan] = useState(null);
   const [loading, setLoading] = useState(true);
+  // --- NEW: PERSONALIZE PLAN STATE ---
+  const [linkModalVisible, setLinkModalVisible] = useState(false);
+  const [generatedLink, setGeneratedLink] = useState('');
+  const [isLinking, setIsLinking] = useState(false);
 
   useEffect(() => {
     const fetchPlanDetails = async () => {
@@ -152,6 +157,33 @@ export default function PlanDetails() {
     }
   };
 
+  // --- NEW: PERSONALIZE PLAN ENGINE ---
+  const createPersonalizedPlan = async () => {
+    try {
+      setIsLinking(true);
+      const response = await fetch(`${API_BASE_URL}/api/create_plan_link`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan: plan }),
+      });
+
+      if (!response.ok) throw new Error("Failed to create personalized plan");
+
+      const data = await response.json();
+      
+      // Construct the link exactly like the website does
+      const link = `https://course-scheduler-scraper.vercel.app/view-personalized-plan/${data.plan_id}`;
+      
+      setGeneratedLink(link);
+      setLinkModalVisible(true);
+    } catch (err) {
+      console.error(err);
+      Alert.alert("Error", "Could not create the personalized plan link.");
+    } finally {
+      setIsLinking(false);
+    }
+  };
+
   if (loading) {
     return (
       <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
@@ -193,7 +225,9 @@ export default function PlanDetails() {
               mode="outlined" 
               textColor="#002d72" 
               style={{ borderColor: '#002d72' }}
-              onPress={() => Alert.alert("Coming Soon", "Personalize feature will be available shortly!")}
+              onPress={createPersonalizedPlan}
+              loading={isLinking}
+              disabled={isLinking}
             >
               Personalize Plan
             </Button>
@@ -294,6 +328,45 @@ export default function PlanDetails() {
           );
         })}
       </ScrollView>
+      {/* --- PERSONALIZE PLAN MODAL --- */}
+      <Modal visible={linkModalVisible} animationType="fade" transparent={true}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 20 }}>
+          <View style={{ backgroundColor: '#fff', padding: 20, borderRadius: 8, elevation: 5 }}>
+            <Text variant="titleLarge" style={{ fontWeight: 'bold', marginBottom: 10, color: '#333' }}>
+              Personal plan link created!
+            </Text>
+            
+            <Text style={{ color: '#555', marginBottom: 15, lineHeight: 22 }}>
+              Your personalized plan has been created, which allows you to keep track of your progress as you complete your degree. You can access this plan from the link below.
+              {"\n\n"}
+              <Text style={{ fontWeight: 'bold' }}>Make sure to save the link before closing:</Text>
+            </Text>
+
+            <Text style={{ color: '#002d72', marginBottom: 20, fontWeight: '500' }} selectable={true}>
+              {generatedLink}
+            </Text>
+
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 10 }}>
+              <Button 
+                mode="outlined" 
+                icon="content-copy" 
+                textColor="#002d72" 
+                style={{ borderColor: '#002d72' }}
+                onPress={async () => {
+                  await Clipboard.setStringAsync(generatedLink);
+                  Alert.alert("Copied!", "Link copied to clipboard.");
+                }}
+              >
+                Copy Link
+              </Button>
+              
+              <Button mode="contained" buttonColor="#002d72" onPress={() => setLinkModalVisible(false)}>
+                Close
+              </Button>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
