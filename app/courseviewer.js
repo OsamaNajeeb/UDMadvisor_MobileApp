@@ -1,6 +1,6 @@
 import React, { useState, useContext, useEffect } from 'react';
 import { View, StyleSheet, Modal, FlatList, Alert, ActivityIndicator, ScrollView } from 'react-native';
-import { Text, Appbar, Card, Button, TextInput, Divider, List, Badge, Searchbar } from 'react-native-paper';
+import { Text, Appbar, Card, Button, TextInput, Divider, List, Badge, Searchbar, Checkbox, IconButton} from 'react-native-paper';
 import WeekView from 'react-native-week-view';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { CourseContext } from '../store/CourseContext'; 
@@ -132,6 +132,21 @@ export default function CourseViewer() {
 
   // --- NEW: GOOGLE-STYLE LIVE SEARCH STATE ---
   const [searchQuery, setSearchQuery] = useState('');
+
+  // --- NEW: COPY TO CLIPBOARD STATE ---
+  const [copyModalVisible, setCopyModalVisible] = useState(false);
+  const [copyToggles, setCopyToggles] = useState({
+    courseName: true,
+    meetingTimes: true,
+    credits: true,
+    section: true,
+    crn: true,
+    totalCredits: true,
+  });
+
+  const toggleCheckbox = (key) => {
+    setCopyToggles(prev => ({ ...prev, [key]: !prev[key] }));
+  };
 
   // --- NEW: THE SEARCH ENGINE ---
   // This runs instantly every single time the user types or deletes a letter!
@@ -281,54 +296,68 @@ const handleRefresh = async () => {
     setFilterVisible(false);
   };
 
-  // --- NEW: COPY TO CLIPBOARD FUNCTION ---
-  const copyScheduleToClipboard = async () => {
-    if (selectedCourses.length === 0) {
-      Alert.alert("Empty Schedule", "You don't have any courses to copy yet!");
-      return;
-    }
+// --- NEW: DYNAMIC CLIPBOARD GENERATOR ---
+  const generateClipboardText = () => {
+    if (selectedCourses.length === 0) return "No courses selected.";
 
-    let scheduleText = "🎓 My Planned Schedule:\n\n";
-
+    let text = "";
     selectedCourses.forEach((course) => {
-      scheduleText += `${course.subject} ${course.course_number} - ${course.course_name}\n`;
-      scheduleText += `CRN: ${course.course_id} | Section: ${course.section} | Credits: ${course.credits}\n`;
+      if (copyToggles.courseName) {
+        text += `${course.course_name} (${course.subject} ${course.course_number})\n`;
+      }
+      if (copyToggles.meetingTimes) {
+        if (course.meeting_times && course.meeting_times.length > 0) {
+          course.meeting_times.forEach((meetingObj) => {
+            const meeting = meetingObj.meetingTime || meetingObj;
+            const begin = meeting.beginTime || meeting.meeting_begin_time;
+            const end = meeting.endTime || meeting.meeting_end_time;
 
-      // Grab the meeting times
-      if (course.meeting_times && course.meeting_times.length > 0) {
-        course.meeting_times.forEach((meetingObj) => {
-          const meeting = meetingObj.meetingTime || meetingObj;
-          const begin = meeting.beginTime || meeting.meeting_begin_time;
-          const end = meeting.endTime || meeting.meeting_end_time;
+            let daysArray = [];
+            if (meeting.monday) daysArray.push("M");
+            if (meeting.tuesday) daysArray.push("T");
+            if (meeting.wednesday) daysArray.push("W");
+            if (meeting.thursday) daysArray.push("Th");
+            if (meeting.friday) daysArray.push("F");
+            if (meeting.saturday) daysArray.push("Sat");
+            
+            const daysString = daysArray.join(" | ");
 
-          let days = "";
-          if (meeting.monday) days += "M ";
-          if (meeting.tuesday) days += "T ";
-          if (meeting.wednesday) days += "W ";
-          if (meeting.thursday) days += "Th ";
-          if (meeting.friday) days += "F ";
-          if (meeting.saturday) days += "Sat ";
-
-          if (begin && end) {
-            scheduleText += `🕒 ${days.trim()} | ${formatTime(begin)} - ${formatTime(end)}\n`;
-          } else {
-            scheduleText += `⏳ Asynchronous (No scheduled time)\n`;
-          }
-        });
-      } else {
-        scheduleText += `⏳ Asynchronous / TBD\n`;
+            if (begin && end) {
+              text += `Meeting Times: Class: ${formatTime(begin)} - ${formatTime(end)}. Days: ${daysString}\n`;
+            } else {
+              text += `Meeting Times: Asynchronous (No scheduled time)\n`;
+            }
+          });
+        } else {
+          text += `Meeting Times: Asynchronous / TBD\n`;
+        }
+      }
+      if (copyToggles.credits) {
+        text += `Credits: ${course.credits}\n`;
+      }
+      if (copyToggles.section) {
+        text += `Section: ${course.section}\n`;
+      }
+      if (copyToggles.crn) {
+        text += `CRN: ${course.course_id}\n`;
       }
       
-      scheduleText += `\n`; // Add a blank line between courses
+      text += "------------------------------\n";
     });
 
-    // Add the total credits at the bottom
-    const totalCredits = selectedCourses.reduce((sum, course) => sum + (course.credits || 0), 0);
-    scheduleText += `Total Credits: ${totalCredits}`;
+    if (copyToggles.totalCredits) {
+      const totalCredits = selectedCourses.reduce((sum, course) => sum + (course.credits || 0), 0);
+      text += `\nTotal Credits: ${totalCredits}`;
+    }
 
-    // Save to the phone's clipboard!
-    await Clipboard.setStringAsync(scheduleText);
-    Alert.alert("Copied!", "Your schedule has been copied to your clipboard.");
+    return text;
+  };
+
+  const executeCopy = async () => {
+    const textToCopy = generateClipboardText();
+    await Clipboard.setStringAsync(textToCopy);
+    Alert.alert("Copied!", "Your custom schedule has been copied to your clipboard.");
+    setCopyModalVisible(false);
   };
 
   // Convert our object keys ("Accounting", "Biology") to an Array so FlatList can read it
@@ -703,7 +732,7 @@ const handleRefresh = async () => {
                 icon="content-copy" 
                 textColor="#002d72" 
                 style={{ borderColor: '#002d72' }}
-                onPress={copyScheduleToClipboard}
+                onPress={() => setCopyModalVisible(true)} // <--- CHANGE THIS LINE
               >
                 Copy to Clipboard
               </Button>
@@ -788,6 +817,59 @@ const handleRefresh = async () => {
                 </View>
               </>
             )}
+          </View>
+        </View>
+      </Modal>
+      {/* --- NEW COPY SETTINGS MODAL --- */}
+      <Modal visible={copyModalVisible} animationType="fade" transparent={true} onRequestClose={() => setCopyModalVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+              <Text variant="titleLarge" style={{ fontWeight: 'bold', color: '#002d72' }}>Copy to Clipboard</Text>
+              <IconButton icon="close" size={20} onPress={() => setCopyModalVisible(false)} />
+            </View>
+            <Text style={{ color: '#666', marginBottom: 15 }}>What information would you like to be included?</Text>
+
+            {/* Checkbox Grid */}
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 15 }}>
+              {[
+                { label: 'Course Name', key: 'courseName' },
+                { label: 'Meeting Times', key: 'meetingTimes' },
+                { label: 'Credits', key: 'credits' },
+                { label: 'Section', key: 'section' },
+                { label: 'CRN', key: 'crn' },
+                { label: 'Total Credits', key: 'totalCredits' },
+              ].map((item) => (
+                <View key={item.key} style={{ flexDirection: 'row', alignItems: 'center', width: '50%', marginBottom: 5 }}>
+                  <Checkbox
+                    status={copyToggles[item.key] ? 'checked' : 'unchecked'}
+                    onPress={() => toggleCheckbox(item.key)}
+                    color="#002d72"
+                  />
+                  <Text style={{ fontSize: 13, color: '#333' }} onPress={() => toggleCheckbox(item.key)}>{item.label}</Text>
+                </View>
+              ))}
+            </View>
+
+            {/* Live Preview Box */}
+            <Text style={{ fontWeight: 'bold', marginBottom: 5, color: '#333' }}>Preview</Text>
+            <View style={{ height: 200, borderWidth: 1, borderColor: '#ddd', borderRadius: 8, backgroundColor: '#f9f9f9', padding: 10, marginBottom: 15 }}>
+              <ScrollView>
+                <Text style={{ fontSize: 13, color: '#444' }}>{generateClipboardText()}</Text>
+              </ScrollView>
+            </View>
+
+            {/* Action Buttons */}
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 10 }}>
+              <Button mode="outlined" textColor="#666" style={{ borderColor: '#ccc' }} onPress={() => setCopyModalVisible(false)}>
+                Cancel
+              </Button>
+              <Button mode="contained" buttonColor="#002d72" onPress={executeCopy}>
+                Copy to clipboard
+              </Button>
+            </View>
+
           </View>
         </View>
       </Modal>
