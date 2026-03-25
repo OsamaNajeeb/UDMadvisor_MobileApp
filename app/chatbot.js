@@ -31,6 +31,73 @@ export default function Chatbot() {
   const HF_TOKEN = process.env.EXPO_PUBLIC_HF_TOKEN;
   const HF_API_URL = "https://router.huggingface.co/v1/chat/completions";
 
+// --- GUARDRAIL 1: COMPETITOR DETECTION (Input Guard) ---
+  const checkInputGuardrails = (text) => {
+    const forbiddenKeywords = ["wayne state", "oakland university", "michigan state", "msu"];
+    const lowerText = text.toLowerCase();
+
+    for (let word of forbiddenKeywords) {
+      if (lowerText.includes(word)) {
+        return {
+          passed: false,
+          fixMessage: `As a University of Detroit Mercy advisor, I cannot provide information about ${word}. Let's focus on your UDM schedule!`
+        };
+      }
+    }
+    return { passed: true };
+  };
+
+  // --- GUARDRAIL 2: HALLUCINATION DETECTION (Output Guard) ---
+  // Scans the AI's response for fake links or non-UDM emails
+  const checkOutputGuardrails = (aiResponseText) => {
+    // Regex to find anything that looks like a URL or Email
+    const urlRegex = /(https?:\/\/[^\s]+|www\.[^\s]+)/g;
+    const emailRegex = /([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/g;
+
+    const foundUrls = aiResponseText.match(urlRegex) || [];
+    const foundEmails = aiResponseText.match(emailRegex) || [];
+
+    // 1. Did the AI hallucinate a link that isn't UDM?
+    for (let url of foundUrls) {
+      if (!url.toLowerCase().includes("udmercy.edu")) {
+        return {
+          passed: false,
+          fixMessage: `I have some advice on that, but to be safe, please verify your specific requirements on the official UDM website at www.udmercy.edu.`
+        };
+      }
+    }
+
+    // 2. Did the AI hallucinate a weird email address?
+    for (let email of foundEmails) {
+      if (!email.toLowerCase().includes("@udmercy.edu")) {
+        return {
+          passed: false,
+          fixMessage: `For the most accurate information on that topic, please reach out to your faculty advisor using your official @udmercy.edu email address.`
+        };
+      }
+    }
+
+    return { passed: true };
+  };
+
+  // --- GUARDRAIL 3: PII DETECTION (Input Guard) ---
+  // Mimics Microsoft Presidio to prevent sensitive data leaks
+  const checkPiiGuardrails = (text) => {
+    // Looks for standard US phone numbers (e.g., 555-123-4567, 5551234567)
+    const phoneRegex = /\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b/;
+    
+    // Looks for 9-digit SSNs or typical 8-to-9 digit Student IDs
+    const idRegex = /\b\d{3}[-.\s]?\d{2}[-.\s]?\d{4}\b|\b\d{8,9}\b/;
+
+    if (phoneRegex.test(text) || idRegex.test(text)) {
+      return {
+        passed: false,
+        fixMessage: `For your protection, I cannot process messages containing personal information like phone numbers, Student IDs, or SSNs. Please remove it and ask your scheduling question again!`
+      };
+    }
+    return { passed: true };
+  };
+
   const sendMessage = async () => {
     if (inputText.trim() === '') return;
 
@@ -44,13 +111,53 @@ export default function Chatbot() {
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
 
-    // 2. Add user message to the screen and clear the input box
+    // 2. Add user message to screen and clear input box
     setMessages(prev => [...prev, newUserMessage]);
     setInputText('');
     Keyboard.dismiss(); 
     
-    // 3. Show the "Bot is typing..." indicator
+    // 3. Show "Bot is typing..." indicator
     setIsTyping(true);
+
+    // --- 🚨 THE INTERCEPTOR: RUN INPUT GUARDRAILS 🚨 ---
+    const guardResult = checkInputGuardrails(userText);
+    
+    if (!guardResult.passed) {
+      setTimeout(() => {
+        const guardMessage = {
+          id: (Date.now() + 1).toString(),
+          text: guardResult.fixMessage,
+          sender: 'bot',
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        };
+        setMessages(prev => [...prev, guardMessage]);
+        setIsTyping(false);
+      }, 600); 
+      
+      // CRITICAL: This 'return' stops the code from reaching Hugging Face!
+      return; 
+    }
+    // ----------------------------------------------------
+
+    // --- 🚨 THE INTERCEPTOR: RUN PII GUARDRAILS 🚨 ---
+    const piiResult = checkPiiGuardrails(userText);
+    
+    if (!piiResult.passed) {
+      setTimeout(() => {
+        const piiMessage = {
+          id: (Date.now() + 1).toString(),
+          text: piiResult.fixMessage,
+          sender: 'bot',
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        };
+        setMessages(prev => [...prev, piiMessage]);
+        setIsTyping(false);
+      }, 600); 
+      
+      // CRITICAL: Stop the code from sending sensitive data to the AI!
+      return; 
+    }
+    // ----------------------------------------------------
 
     try {
       // 4. Talk directly to the ungated Qwen AI model
@@ -61,11 +168,11 @@ export default function Chatbot() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: "Qwen/Qwen2.5-72B-Instruct", // <--- THE 100% UNGATED FIX
+          model: "Qwen/Qwen2.5-72B-Instruct", 
           messages: [
             { 
               role: "system", 
-              content: "You are an academic advisor assistant for University of Detroit Mercy. Keep answers concise, friendly, and helpful. Do not use formatting like bolding or italics." 
+              content: "You are an academic advisor assistant for University of Detroit Mercy. Keep answers concise, friendly, and helpful. Do not use formatting like bolding or italics. STRICT RESTRICTION: You must ONLY answer questions related to university academics, scheduling, courses, campus life, and student resources. If a user asks about politics, vehicles, general world facts, or any off-topic subject, you must politely refuse to answer and steer the conversation back to UDM academics." 
             },
             { role: "user", content: userText }
           ],
@@ -80,12 +187,21 @@ export default function Chatbot() {
       }
 
       const data = await response.json();
-      const aiResponseText = data.choices[0].message.content;
+      let finalBotText = data.choices[0].message.content.trim();
+
+      // --- 🚨 THE INTERCEPTOR: RUN OUTPUT GUARDRAILS 🚨 ---
+      const outputGuardResult = checkOutputGuardrails(finalBotText);
+      
+      if (!outputGuardResult.passed) {
+        // If it hallucinates a bad link, override the AI's text with the safe fix!
+        finalBotText = outputGuardResult.fixMessage;
+      }
+      // -----------------------------------------------------
 
       // 5. Build the real AI's response bubble
       const newBotMessage = {
         id: (Date.now() + 1).toString(),
-        text: aiResponseText.trim(),
+        text: finalBotText,
         sender: 'bot',
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       };
@@ -105,6 +221,8 @@ export default function Chatbot() {
       setIsTyping(false);
     }
   };
+  
+
   
   // --- UI RENDERER FOR EACH BUBBLE ---
   const renderMessage = ({ item }) => {
