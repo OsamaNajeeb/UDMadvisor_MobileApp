@@ -47,17 +47,27 @@ export default function Chatbot() {
     return { passed: true };
   };
 
-  // --- GUARDRAIL 2: HALLUCINATION DETECTION (Output Guard) ---
-  // Scans the AI's response for fake links or non-UDM emails
+// --- GUARDRAIL 2: HALLUCINATION & COMPETITOR DETECTION (Output Guard) ---
   const checkOutputGuardrails = (aiResponseText) => {
-    // Regex to find anything that looks like a URL or Email
     const urlRegex = /(https?:\/\/[^\s]+|www\.[^\s]+)/g;
     const emailRegex = /([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/g;
+    const forbiddenCompetitors = ["wayne state", "oakland university", "michigan state", "msu"];
 
     const foundUrls = aiResponseText.match(urlRegex) || [];
     const foundEmails = aiResponseText.match(emailRegex) || [];
+    const lowerResponse = aiResponseText.toLowerCase();
 
-    // 1. Did the AI hallucinate a link that isn't UDM?
+    // 1. Did the AI output a competitor name? (Matches Lesson 8)
+    for (let word of forbiddenCompetitors) {
+      if (lowerResponse.includes(word)) {
+        return {
+          passed: false,
+          fixMessage: `I am exclusively focused on the University of Detroit Mercy. Let's talk about your UDM academic goals!`
+        };
+      }
+    }
+
+    // 2. Did the AI hallucinate a link that isn't UDM?
     for (let url of foundUrls) {
       if (!url.toLowerCase().includes("udmercy.edu")) {
         return {
@@ -67,7 +77,7 @@ export default function Chatbot() {
       }
     }
 
-    // 2. Did the AI hallucinate a weird email address?
+    // 3. Did the AI hallucinate a weird email address?
     for (let email of foundEmails) {
       if (!email.toLowerCase().includes("@udmercy.edu")) {
         return {
@@ -172,7 +182,7 @@ export default function Chatbot() {
           messages: [
             { 
               role: "system", 
-              content: "You are an academic advisor assistant for University of Detroit Mercy. Keep answers concise, friendly, and helpful. Do not use formatting like bolding or italics. STRICT RESTRICTION: You must ONLY answer questions related to university academics, scheduling, courses, campus life, and student resources. If a user asks about politics, vehicles, general world facts, or any off-topic subject, you must politely refuse to answer and steer the conversation back to UDM academics." 
+              content: "You are a strict academic advisor assistant for University of Detroit Mercy. Keep answers concise and friendly. STRICT RESTRICTION: You are explicitly forbidden from answering math problems, verifying calculations, or discussing politics, vehicles, or general world facts. If the user's input is not DIRECTLY about university academics, scheduling, courses, or campus life, you MUST politely refuse and steer them back to UDM. Do not break character." 
             },
             { role: "user", content: userText }
           ],
@@ -297,7 +307,7 @@ export default function Chatbot() {
             activeOutlineColor="#002d72"
             outlineColor="#ccc"
             multiline={true}
-            paddingTop = "20"
+            // paddingTop = "20"
             // Send when hitting enter on the keyboard
             onSubmitEditing={sendMessage} 
           />
