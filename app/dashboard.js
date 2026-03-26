@@ -3,6 +3,7 @@ import { View, ScrollView, StyleSheet, Image } from 'react-native';
 import { Text, Button, Card, Avatar, Appbar, useTheme } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import FeedbackButton from '../components/FeedbackButton';
 
 
 const DASHBOARD_OPTIONS = [
@@ -82,6 +83,8 @@ export default function Dashboard() {
         ))}
 
       </ScrollView>
+      {/* Add the hovering feedback button here! */}
+      <FeedbackButton />
     </View>
   );
 }
