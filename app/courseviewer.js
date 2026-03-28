@@ -127,15 +127,21 @@ export default function CourseViewer() {
     setIsScrolling(true);
   };
 
-  const handleScrollEnd = () => {
-    // Clear any existing timer just to be safe
+const handleScrollEnd = () => {
     if (scrollTimer.current) clearTimeout(scrollTimer.current);
-    
-    // Start a new 3-second (3000 milliseconds) countdown
     scrollTimer.current = setTimeout(() => {
-      setIsScrolling(false); // After 3 seconds, show the button again
+      setIsScrolling(false); 
     }, 2000); 
   };
+
+  // --- NEW: THE MAGIC CRASH FIX ---
+  // When the user hits 'Back', this cleanly kills the timer so it doesn't crash the app!
+  useEffect(() => {
+    return () => {
+      if (scrollTimer.current) clearTimeout(scrollTimer.current);
+    };
+  }, []);
+
   const router = useRouter();
 
   const { globalCourses, setGlobalCourses, selectedCourses, toggleCourse } = useContext(CourseContext);
@@ -168,7 +174,7 @@ export default function CourseViewer() {
     setCopyToggles(prev => ({ ...prev, [key]: !prev[key] }));
   };
 
-  // --- NEW: THE SEARCH ENGINE ---
+// --- NEW: THE SEARCH ENGINE ---
   // This runs instantly every single time the user types or deletes a letter!
   useEffect(() => {
     if (!globalCourses) return;
@@ -183,7 +189,7 @@ export default function CourseViewer() {
     const newFilteredList = {};
 
     // Look through every category (e.g., "Accounting", "Biology")
-    Object.keys(globalCourses).forEach(category => {
+    Object.keys(globalCourses || {}).forEach(category => {
       const filteredCourses = globalCourses[category].filter(course => {
         
         // 1. Check if the Subject matches (e.g., "ACC")
@@ -295,10 +301,12 @@ const handleRefresh = async () => {
   // Added optional chaining (?) to the time formatter just in case
   const formatTime = (t) => (t && t.length >= 4) ? `${t.slice(0, 2)}:${t.slice(2)}` : 'TBD';
 
-  const applyFilters = () => {
+const applyFilters = () => {
     const newFilteredList = {};
     const sortedSubjects = Object.keys(displayCourses || {}).sort();
-    Object.keys(globalCourses).forEach(category => {
+    
+    // THE FIX: We added || {} right here!
+    Object.keys(globalCourses || {}).forEach(category => {
       const filteredCourses = globalCourses[category].filter(course => {
         const matchSubject = searchSubject === '' || 
           (course.subject && course.subject.toLowerCase().includes(searchSubject.toLowerCase()));
@@ -308,10 +316,12 @@ const handleRefresh = async () => {
           (course.course_name && course.course_name.toLowerCase().includes(searchTitle.toLowerCase()));
         return matchSubject && matchNumber && matchTitle;
       });
+      
       if (filteredCourses.length > 0) {
         newFilteredList[category] = filteredCourses;
       }
     });
+    
     setDisplayCourses(newFilteredList);
     setFilterVisible(false);
   };
@@ -381,7 +391,7 @@ const handleRefresh = async () => {
   };
 
   // Convert our object keys ("Accounting", "Biology") to an Array so FlatList can read it
-  const sortedSubjects = Object.keys(displayCourses).sort();
+  const sortedSubjects = Object.keys(displayCourses || {}).sort();
 
   // --- THE MAGIC COMPONENT ---
   // This renders each Subject Row efficiently. 
