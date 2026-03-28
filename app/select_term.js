@@ -4,6 +4,7 @@ import { Text, Button, Appbar } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import { Picker } from '@react-native-picker/picker';
 import { CourseContext } from '../store/CourseContext'; // The Vault!
+import FeedbackButton from '../components/FeedbackButton';
 
 // Cloud Server URL
 const API_BASE_URL = "https://udmadvisor-server.onrender.com";
@@ -151,6 +152,7 @@ const handleSelectTerm = async () => {
           Select Term
         </Button>
       </View>
+      <FeedbackButton />
     </View>
   );
 }

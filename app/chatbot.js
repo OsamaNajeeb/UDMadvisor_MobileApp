@@ -3,6 +3,7 @@ import { View, StyleSheet, FlatList, KeyboardAvoidingView, Platform, Keyboard } 
 import { Text, Appbar, TextInput, IconButton, Avatar, ActivityIndicator } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import FeedbackButton from '../components/FeedbackButton';
 
 // =============================================================================
 // SECURITY FIX: The HF token has been removed from the client entirely.
@@ -363,6 +364,7 @@ export default function Chatbot() {
         </View>
 
       </KeyboardAvoidingView>
+      <FeedbackButton />
     </View>
   );
 }

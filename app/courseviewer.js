@@ -1,10 +1,11 @@
-import React, { useState, useContext, useEffect } from 'react';
+import React, { useState, useContext, useEffect, useRef } from 'react';
 import { View, StyleSheet, Modal, FlatList, Alert, ActivityIndicator, ScrollView } from 'react-native';
 import { Text, Appbar, Card, Button, TextInput, Divider, List, Badge, Searchbar, Checkbox, IconButton} from 'react-native-paper';
 import WeekView from 'react-native-week-view';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { CourseContext } from '../store/CourseContext'; 
 import * as Clipboard from 'expo-clipboard';
+import FeedbackButton from '../components/FeedbackButton';
 
 // NEW HELPER: Always find the Monday of the current week!
 const getCurrentMonday = () => {
@@ -116,6 +117,25 @@ const generateCalendarEvents = (courses) => {
 };
 
 export default function CourseViewer() {
+
+  const [isScrolling, setIsScrolling] = useState(false);
+  const scrollTimer = useRef(null); // This acts as a stopwatch we can start and stop
+
+  const handleScrollStart = () => {
+    // If they start scrolling again, immediately cancel the 3-second countdown!
+    if (scrollTimer.current) clearTimeout(scrollTimer.current);
+    setIsScrolling(true);
+  };
+
+  const handleScrollEnd = () => {
+    // Clear any existing timer just to be safe
+    if (scrollTimer.current) clearTimeout(scrollTimer.current);
+    
+    // Start a new 3-second (3000 milliseconds) countdown
+    scrollTimer.current = setTimeout(() => {
+      setIsScrolling(false); // After 3 seconds, show the button again
+    }, 2000); 
+  };
   const router = useRouter();
 
   const { globalCourses, setGlobalCourses, selectedCourses, toggleCourse } = useContext(CourseContext);
@@ -561,8 +581,13 @@ const handleRefresh = async () => {
         renderItem={renderSubject}
         contentContainerStyle={styles.scrollContent}
         
-        // ADD THESE THREE LINES:
-        initialNumToRender={10} 
+        // --- YOUR NEW DELAYED DETECTORS ---
+        onScrollBeginDrag={handleScrollStart}   
+        onScrollEndDrag={handleScrollEnd}    
+        onMomentumScrollEnd={handleScrollEnd} 
+        // ----------------------------------
+
+        initialNumToRender={10}
         maxToRenderPerBatch={5}
         windowSize={5}
         // FlatList lets us put the title and buttons inside a Header component so they scroll naturally
@@ -873,6 +898,7 @@ const handleRefresh = async () => {
           </View>
         </View>
       </Modal>
+      <FeedbackButton showFab={!isScrolling} />
     </View>
   );
 }
