@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, StyleSheet, Modal, Alert } from 'react-native';
 import { FAB, Text, TextInput, Button, IconButton } from 'react-native-paper';
 
-export default function FeedbackButton() {
+export default function FeedbackButton({ showFab = true }) {
   const [visible, setVisible] = useState(false);
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
@@ -43,6 +43,7 @@ export default function FeedbackButton() {
     <>
       {/* 1. The Floating Action Button (FAB) */}
       <FAB
+        visible={showFab}
         icon="message-alert-outline"
         style={styles.fab}
         onPress={() => setVisible(true)}
@@ -95,8 +96,8 @@ const styles = StyleSheet.create({
   fab: {
     position: 'absolute',
     margin: 16,
-    right: 0,
-    bottom: 0, // Docks it to the bottom right!
+    left: 0,
+    bottom: 40, // Docks it to the bottom right!
     backgroundColor: '#A5093E', 
     borderRadius: 30, // Makes it perfectly round
   },

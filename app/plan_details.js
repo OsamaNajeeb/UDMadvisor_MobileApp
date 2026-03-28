@@ -5,6 +5,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as Clipboard from 'expo-clipboard';
+import FeedbackButton from '../components/FeedbackButton';
 
 // Using the working API URL!
 const API_BASE_URL = "https://scraper2-nzef.onrender.com";
@@ -367,6 +368,7 @@ export default function PlanDetails() {
           </View>
         </View>
       </Modal>
+      <FeedbackButton />
     </View>
   );
 }

@@ -3,6 +3,7 @@ import { View, StyleSheet, FlatList, Modal, Alert, ActivityIndicator, ScrollView
 import { Text, Appbar, Card, Button, TextInput, Divider, List } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import { Picker } from '@react-native-picker/picker';
+import FeedbackButton from '../components/FeedbackButton';
 
 // Cloud Server URL
 const API_BASE_URL = "https://scraper2-nzef.onrender.com";
@@ -327,6 +328,7 @@ export default function PlansViewer() {
             </View>
           </View>
         </View>
+        <FeedbackButton />
       </Modal>
 
     </View>

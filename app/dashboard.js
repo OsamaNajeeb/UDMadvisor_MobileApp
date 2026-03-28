@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { View, ScrollView, StyleSheet, Image } from 'react-native';
 import { Text, Button, Card, Avatar, Appbar, useTheme } from 'react-native-paper';
 import { useRouter } from 'expo-router';
@@ -34,6 +34,7 @@ export default function Dashboard() {
   const router = useRouter();
   const insets = useSafeAreaInsets(); 
   const theme = useTheme();
+  const [isScrolling, setIsScrolling] = useState(false);
 
   return (
     <View style={[styles.container, { paddingBottom: insets.bottom > 0 ? insets.bottom : 20 }]}>
@@ -43,7 +44,12 @@ export default function Dashboard() {
         <Appbar.Action icon="logout" color="#fff" onPress={() => router.replace('/')} />
       </Appbar.Header>
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView 
+        contentContainerStyle={styles.scrollContent}
+        onScrollBeginDrag={() => setIsScrolling(true)}   
+        onScrollEndDrag={() => setIsScrolling(false)}    
+        onMomentumScrollEnd={() => setIsScrolling(false)} 
+      >
         
         <View style={styles.headerSection}>
             <Avatar.Icon size={80} icon="school" style={{ backgroundColor: '#002d72' }} />
@@ -84,7 +90,7 @@ export default function Dashboard() {
 
       </ScrollView>
       {/* Add the hovering feedback button here! */}
-      <FeedbackButton />
+      <FeedbackButton showFab={!isScrolling} />
     </View>
   );
 }
