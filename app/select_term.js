@@ -1,17 +1,16 @@
-import React, { useState, useEffect, useContext, useCallback } from 'react';
+import React, { useState, useEffect, useContext, useCallback, useMemo } from 'react';
 import { View, StyleSheet, Alert, Modal, FlatList } from 'react-native';
-// --- NEW: Added ActivityIndicator to our imports ---
-import { Text, Button, Appbar, Checkbox, Divider, IconButton, ActivityIndicator } from 'react-native-paper';
+// --- NEW: Added Searchbar to our imports ---
+import { Text, Button, Appbar, Checkbox, Divider, IconButton, ActivityIndicator, Searchbar } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import { Picker } from '@react-native-picker/picker';
 import { CourseContext } from '../store/CourseContext'; 
 import FeedbackButton from '../components/FeedbackButton';
 import subjectsData from '../store/full_courses.json';
 
-const API_BASE_URL = "https://udmadvisor-server.onrender.com";
+// const API_BASE_URL = "https://udmadvisor-server.onrender.com";
+const API_BASE_URL = "http://10.0.53.168:5000";
 
-// --- NEW: THE MEMOIZED CHECKBOX ---
-// React.memo prevents this box from redrawing unless its specific 'isChecked' status changes!
 const SubjectCheckbox = React.memo(({ code, name, isChecked, onToggle }) => {
   return (
     <Checkbox.Item
@@ -33,6 +32,9 @@ export default function SelectTerm() {
   const [selectedSubjects, setSelectedSubjects] = useState([]);
   const [subjectModalVisible, setSubjectModalVisible] = useState(false);
   
+  // --- NEW: State to track what the user is typing in the search bar ---
+  const [subjectSearchQuery, setSubjectSearchQuery] = useState('');
+  
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -50,7 +52,6 @@ export default function SelectTerm() {
     fetchTerms();
   }, []);
 
-// --- UPGRADED: useCallback locks this function in memory to speed up clicks ---
   const toggleSubject = useCallback((code) => {
     setSelectedSubjects((prev) => {
       if (prev.includes(code)) {
@@ -60,6 +61,23 @@ export default function SelectTerm() {
       }
     });
   }, []);
+
+  // --- NEW: Live Search Engine for the Checkboxes ---
+  // This instantly filters the list if they type "Math" or "MTH"
+  const filteredSubjects = useMemo(() => {
+    if (!subjectSearchQuery.trim()) return Object.entries(subjectsData);
+    
+    return Object.entries(subjectsData).filter(([code, name]) => {
+      const query = subjectSearchQuery.toLowerCase();
+      return code.toLowerCase().includes(query) || name.toLowerCase().includes(query);
+    });
+  }, [subjectSearchQuery]);
+
+  // Helper to cleanly close modal and wipe the search bar so it's fresh next time
+  const closeSubjectModal = () => {
+    setSubjectModalVisible(false);
+    setSubjectSearchQuery(''); 
+  };
 
   const handleSelectTerm = async () => {
     if (!selectedTerm || selectedSubjects.length === 0) {
@@ -104,9 +122,10 @@ export default function SelectTerm() {
           current_enrollment: course.current_enrollment || 0,
           enrollment_is_full: course.enrollment_is_full || false,
           maximumEnrollment: course.maximum_enrollment || 0,
-          seatsAvailable: course.seats_available || 0
+          seatsAvailable: course.seats_available || 0,
+          prerequisites: course.prerequisites || course.prerequisiteText || ""
         });  
-      });
+      });;
 
       setGlobalCourses(groupedCourses);
       
@@ -139,12 +158,11 @@ export default function SelectTerm() {
       <View style={styles.content}>
         <Text variant="headlineMedium" style={styles.title}>Find Courses</Text>
         
-        {/* 1. THE TERM PICKER */}
         <View style={styles.pickerContainer}>
           <Picker
             selectedValue={selectedTerm}
             onValueChange={(itemValue) => setSelectedTerm(itemValue)}
-            enabled={!loading} // <--- NEW: Disables the picker while loading!
+            enabled={!loading}
           >
             <Picker.Item label="1. Select a Term" value={null} color="#666" />
             {terms.map((term, index) => (
@@ -153,20 +171,18 @@ export default function SelectTerm() {
           </Picker>
         </View>
 
-        {/* 2. THE MULTI-SELECT BUTTON */}
         <Button 
           mode="outlined" 
           onPress={() => setSubjectModalVisible(true)}
           style={styles.multiSelectBtn}
           textColor={selectedSubjects.length > 0 ? "#A5093E" : "#666"}
-          disabled={loading} // <--- NEW: Disables the button while loading!
+          disabled={loading}
         >
           {selectedSubjects.length > 0 
             ? `2. Selected ${selectedSubjects.length} Subject(s)` 
             : '2. Select Subjects (Check all that apply)'}
         </Button>
 
-        {/* 3. THE SUBMIT BUTTON */}
         <Button 
           mode="contained" 
           onPress={handleSelectTerm} 
@@ -176,7 +192,6 @@ export default function SelectTerm() {
           View Classes
         </Button>
 
-        {/* 4. THE CLEAR FORM BUTTON */}
         <Button 
           mode="text" 
           onPress={() => {
@@ -191,28 +206,35 @@ export default function SelectTerm() {
         </Button>
       </View>
 
-      {/* --- THE CUSTOM CHECKBOX MODAL --- */}
       <Modal visible={subjectModalVisible} animationType="slide" transparent={true}>
         <View style={styles.subjectModalOverlay}>
           <View style={styles.modalContent}>
             
             <View style={styles.modalHeader}>
               <Text variant="titleLarge" style={{ fontWeight: 'bold', color: '#002d72' }}>Select Subjects</Text>
-              <IconButton icon="close" size={24} onPress={() => setSubjectModalVisible(false)} />
+              <IconButton icon="close" size={24} onPress={closeSubjectModal} />
             </View>
+
+            {/* --- NEW: THE SEARCH BAR --- */}
+            <Searchbar
+              placeholder="Search subjects (e.g. BIO, Math)..."
+              onChangeText={setSubjectSearchQuery}
+              value={subjectSearchQuery}
+              style={styles.searchBar}
+              inputStyle={{ minHeight: 40 }}
+              iconColor="#A5093E"
+              elevation={0}
+            />
 
             <Divider style={{ marginBottom: 10 }} />
 
             <FlatList
-              data={Object.entries(subjectsData)}
+              data={filteredSubjects} // <--- Now uses the filtered list!
               keyExtractor={([code]) => code}
-              
-              // --- NEW: Speed optimization props! ---
               initialNumToRender={15}
               maxToRenderPerBatch={10}
               windowSize={5}
               removeClippedSubviews={true}
-              
               renderItem={({ item }) => {
                 const [code, name] = item;
                 return (
@@ -239,7 +261,7 @@ export default function SelectTerm() {
                 mode="contained" 
                 buttonColor="#002d72" 
                 style={{ width: '48%' }}
-                onPress={() => setSubjectModalVisible(false)}
+                onPress={closeSubjectModal}
               >
                 Done
               </Button>
@@ -248,13 +270,12 @@ export default function SelectTerm() {
         </View>
       </Modal>
 
-      {/* --- NEW: THE LOADING POPUP OVERLAY --- */}
       <Modal visible={loading} transparent={true} animationType="fade">
         <View style={styles.loadingOverlay}>
           <View style={styles.loadingBox}>
             <ActivityIndicator animating={true} color="#A5093E" size="large" />
             <Text style={styles.loadingText}>Fetching Courses...</Text>
-            <Text style={styles.loadingSubText}>This may take up to few seconds. Please be patient!</Text>
+            <Text style={styles.loadingSubText}>This may take up to a few seconds. Please be patient!</Text>
           </View>
         </View>
       </Modal>
@@ -275,12 +296,21 @@ const styles = StyleSheet.create({
   // Subject Modal Styles
   subjectModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
   modalContent: { backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, height: '80%', padding: 20 },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 },
   
-  // --- NEW: Loading Overlay Styles ---
+  // --- NEW: Searchbar Style ---
+  searchBar: {
+    backgroundColor: '#f0f0f0',
+    borderRadius: 8,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#e0e0e0'
+  },
+
+  // Loading Overlay Styles
   loadingOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)', // Darkens the whole screen
+    backgroundColor: 'rgba(0,0,0,0.6)', 
     justifyContent: 'center',
     alignItems: 'center',
   },

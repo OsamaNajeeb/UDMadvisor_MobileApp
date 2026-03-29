@@ -1,4 +1,4 @@
-import React, { useState, useContext, useEffect, useRef } from 'react';
+import React, { useState, useContext, useEffect, useRef, useMemo, useCallback } from 'react';
 import { View, StyleSheet, Modal, FlatList, Alert, ActivityIndicator, ScrollView } from 'react-native';
 import { Text, Appbar, Card, Button, TextInput, Divider, List, Badge, Searchbar, Checkbox, IconButton} from 'react-native-paper';
 import WeekView from 'react-native-week-view';
@@ -116,7 +116,145 @@ const generateCalendarEvents = (courses) => {
   return events;
 };
 
+// --- 2. MOVED OUTSIDE: The Time Formatter ---
+const formatTime = (t) => (t && t.length >= 4) ? `${t.slice(0, 2)}:${t.slice(2)}` : 'TBD';
+
+// --- 3. NEW: THE MEMOIZED COURSE CARD ---
+// This stops React from redrawing the cards unless you specifically click "Add" or "Remove" on them!
+const CourseCard = React.memo(({ course, isSelected, onToggle, onPrereqPress }) => {
+  const meeting = course.meeting_times?.[0] || {};
+  const isOnline = course.section?.startsWith('OL') || meeting.building === "ONLINE";
+
+  return (
+    <Card style={styles.card}>
+      <Card.Content>
+        <View style={styles.cardHeader}>
+          <Text variant="titleMedium" style={styles.courseCode}>
+            {course.subject} {course.course_number}
+          </Text>
+          {isOnline && (
+            <View style={styles.onlineBadge}>
+              <Text style={styles.onlineBadgeText}>Online</Text>
+            </View>
+          )}
+        </View>
+        
+        <Text variant="bodyLarge" style={styles.courseName}>{course.course_name}</Text>
+
+        {course.meeting_times?.map((meetingObj, index) => {
+          const meeting = meetingObj.meetingTime || meetingObj;
+          const begin = meeting.beginTime || meeting.meeting_begin_time;
+          const end = meeting.endTime || meeting.meeting_end_time;
+          let days = "";
+          if (meeting.monday) days += "M ";
+          if (meeting.tuesday) days += "T ";
+          if (meeting.wednesday) days += "W ";
+          if (meeting.thursday) days += "Th ";
+          if (meeting.friday) days += "F ";
+          if (meeting.saturday) days += "Sat ";
+
+          return (
+            <View key={index} style={{ marginTop: 5 }}>
+              {begin ? (
+                <Text style={styles.timeText}>
+                  🕒 {days.trim()} | {formatTime(begin)} - {formatTime(end)}
+                  {meeting.room ? ` (Rm ${meeting.room})` : ''}
+                </Text>
+              ) : (
+                <Text style={styles.timeText}>🕒 Asynchronous (No scheduled time)</Text>
+              )}
+            </View>
+          );
+        })}
+
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 }}>
+          <Text style={{ fontWeight: '600', color: '#555' }}>Section: {course.section}</Text>
+          <Text style={{ fontWeight: '600', color: '#555' }}>Credits: {course.credits}</Text>
+        </View>
+
+        <View style={{ marginTop: 8, borderTopWidth: 1, borderTopColor: '#eee', paddingTop: 5 }}>
+          <Text style={{ fontSize: 13, color: '#666' }}>
+            👨‍🏫 Faculty: {course.faculty && course.faculty.length > 0 ? [...new Set(course.faculty)].join(', ') : "Staff"}
+          </Text>
+        </View>
+
+        <View style={{ marginTop: 8, borderTopWidth: 1, borderTopColor: '#eee', paddingTop: 5 }}>
+          <Text style={{ fontSize: 13, color: '#666' }}>
+            {(() => {
+              const enrl = course.current_enrollment || 0;
+              const isFull = course.enrollment_is_full;
+              const max = course.maximumEnrollment || 0;
+              const seats = course.seatsAvailable || 0;
+              if (max > 0) {
+                if (isFull || enrl >= max || seats <= 0) return <Text>👥 Enrollment: {enrl} / {max} <Text style={{ color: '#A5093E', fontWeight: 'bold' }}> (Full)</Text></Text>;
+                return <Text>👥 Enrollment: {enrl} / {max} <Text style={{ color: '#166534', fontWeight: 'bold' }}> ({seats} Seats Available)</Text></Text>;
+              }
+              if (isFull) return <Text>👥 Enrollment: {enrl} Enrolled <Text style={{ color: '#A5093E', fontWeight: 'bold' }}> (Full)</Text></Text>;
+              return <Text>👥 Enrollment: {enrl} Enrolled <Text style={{ color: '#166534', fontWeight: 'bold' }}> (Open)</Text></Text>;
+            })()}
+          </Text>
+        </View>   
+        {/* --- 🚨 THE NEW CLICKABLE LINK 🚨 --- */}
+        {course.prerequisites ? (
+          <View style={{ marginTop: 8, paddingTop: 5 }}>
+            <Text 
+              style={{ fontSize: 14, color: '#0284c7', fontWeight: 'bold', textDecorationLine: 'underline' }}
+              onPress={() => onPrereqPress(course.prerequisites)}
+            >
+              ⚠️ Prerequisite Detected (Tap to view)
+            </Text>
+          </View>
+        ) : null}
+      </Card.Content>
+
+      <Card.Actions>
+        {isSelected ? (
+          <Button mode="contained" buttonColor="#A5093E" onPress={() => onToggle(course)}>Remove from Schedule</Button>
+        ) : (
+          <Button mode="contained" buttonColor="#002d72" onPress={() => onToggle(course)}>Add to Schedule</Button>
+        )}
+      </Card.Actions>
+    </Card>
+  );
+});
+
+// --- 4. NEW: THE MEMOIZED ACCORDION ROW ---
+// This acts as a shield. It prevents the 79 closed subjects from redrawing when you open 1 of them!
+const SubjectRow = React.memo(({ subject, isExpanded, courses, selectedCourses, onToggleExpand, onToggleCourse, onPrereqPress }) => {
+  return (
+    <List.Accordion
+      title={subject}
+      titleStyle={styles.accordionTitle}
+      style={styles.accordionHeader}
+      expanded={isExpanded}
+      onPress={() => onToggleExpand(subject)}
+    >
+      {isExpanded && courses?.map((course) => (
+        <CourseCard 
+          key={course.course_id} 
+          course={course} 
+          isSelected={selectedCourses.some(c => c.course_id === course.course_id)}
+          onToggle={onToggleCourse}
+          onPrereqPress={onPrereqPress}
+        />
+      ))}
+    </List.Accordion>
+  );
+}, (prevProps, nextProps) => {
+  // THE CUSTOM SPEED FILTER:
+  if (prevProps.isExpanded !== nextProps.isExpanded) return false; // Redraw if it is opening/closing
+  if (prevProps.subject !== nextProps.subject) return false;
+  if (prevProps.courses !== nextProps.courses) return false;
+  
+  // If the accordion is currently OPEN, we must redraw it if they add/drop a class so the button updates
+  if (nextProps.isExpanded && prevProps.selectedCourses !== nextProps.selectedCourses) return false;
+  
+  // Otherwise, SKIP REDRAWING THIS ROW!
+  return true; 
+});
+
 export default function CourseViewer() {
+
 
   const [isScrolling, setIsScrolling] = useState(false);
   const scrollTimer = useRef(null); // This acts as a stopwatch we can start and stop
@@ -224,7 +362,8 @@ const handleRefresh = async () => {
     setIsRefreshing(true);
     
     try {
-      const apiUrl = `https://udmadvisor-server.onrender.com/api/fetch_courses?term_name=${encodeURIComponent(termName)}&term_code=${termCode}&refresh_course_data=true`;
+      // const apiUrl = `https://udmadvisor-server.onrender.com/api/fetch_courses?term_name=${encodeURIComponent(termName)}&term_code=${termCode}&refresh_course_data=true`;
+      const apiUrl = `https://10.0.53.168/api/fetch_courses?term_name=${encodeURIComponent(termName)}&term_code=${termCode}&refresh_course_data=true`;
       const response = await fetch(apiUrl);
       
       // 1. Read the raw response text first (in case the Python server crashed entirely and sent HTML)
@@ -260,9 +399,10 @@ const handleRefresh = async () => {
           current_enrollment: course.current_enrollment || 0,
           enrollment_is_full: course.enrollment_is_full || false,
           maximumEnrollment: course.maximum_enrollment || 0,
-          seatsAvailable: course.seats_available || 0
+          seatsAvailable: course.seats_available || 0,
+          prerequisites: course.prerequisites || course.prerequisiteText || ""
         });
-      });
+      });;
 
       setGlobalCourses(groupedCourses);
       
@@ -298,8 +438,44 @@ const handleRefresh = async () => {
   // NEW: State to track exactly which Accordion is currently open
   const [expandedSubject, setExpandedSubject] = useState(null);
 
+  // --- NEW: PREREQUISITE MODAL MEMORY ---
+  const [prereqModalVisible, setPrereqModalVisible] = useState(false);
+  const [selectedPrereqText, setSelectedPrereqText] = useState('');
+
+  const handleOpenPrereq = useCallback((text) => {
+    setSelectedPrereqText(text);
+    setPrereqModalVisible(true);
+  }, []);
+
   // Added optional chaining (?) to the time formatter just in case
   const formatTime = (t) => (t && t.length >= 4) ? `${t.slice(0, 2)}:${t.slice(2)}` : 'TBD';
+
+// --- NEW: CALENDAR MEMORY ---
+  // Calculates the calendar blocks ONCE, and remembers them until you actually add/drop a class.
+  const memoizedEvents = useMemo(() => generateCalendarEvents(selectedCourses), [selectedCourses]);
+
+  // --- NEW: SMART ADD/DROP BUTTON HANDLER ---
+  const handleCourseToggle = useCallback((course) => {
+    const isAlreadySelected = selectedCourses.some(c => c.course_id === course.course_id);
+    
+    if (isAlreadySelected) {
+      toggleCourse(course); // Drop it
+    } else {
+      // 1. DUPLICATE CHECK
+      const duplicateCourse = selectedCourses.find(c => c.subject === course.subject && c.course_number === course.course_number);
+      if (duplicateCourse) {
+        Alert.alert("Duplicate Course", `You already have ${course.subject} ${course.course_number} in your schedule.`, [{ text: "OK", style: "cancel" }]);
+        return; 
+      }
+      // 2. CONFLICT CHECK
+      const conflictingCourse = getConflict(course, selectedCourses);
+      if (conflictingCourse) {
+        Alert.alert("Scheduling Conflict", `This course overlaps with:\n\n${conflictingCourse.subject} ${conflictingCourse.course_number}`, [{ text: "OK", style: "cancel" }]);
+      } else {
+        toggleCourse(course); // Add it!
+      }
+    }
+  }, [selectedCourses, toggleCourse]);
 
 const applyFilters = () => {
     const newFilteredList = {};
@@ -393,168 +569,26 @@ const applyFilters = () => {
   // Convert our object keys ("Accounting", "Biology") to an Array so FlatList can read it
   const sortedSubjects = Object.keys(displayCourses || {}).sort();
 
-  // --- THE MAGIC COMPONENT ---
-  // This renders each Subject Row efficiently. 
-  const renderSubject = ({ item: subject }) => {
-    const isExpanded = expandedSubject === subject;
+// --- THE MAGIC COMPONENT UPDATED ---
+  // We lock the open/close function in memory to speed up clicks
+  const handleToggleExpand = useCallback((subject) => {
+    setExpandedSubject(prev => (prev === subject ? null : subject));
+  }, []);
 
+  // Now we just pass the data to our super-fast memoized row
+  const renderSubject = useCallback(({ item: subject }) => {
     return (
-      <List.Accordion
-        title={subject}
-        titleStyle={styles.accordionTitle}
-        style={styles.accordionHeader}
-        expanded={isExpanded}
-        // If we tap it, expand it. If it's already expanded, close it (set to null).
-        onPress={() => setExpandedSubject(isExpanded ? null : subject)}
-      >
-        {/* LAZY LOADING: Only map through the 100+ cards IF this specific accordion is open! */}
-        {isExpanded && displayCourses[subject]?.map((course) => {
-          const meeting = course.meeting_times?.[0] || {};
-          const isOnline = course.section?.startsWith('OL') || meeting.building === "ONLINE";
-
-          return (
-            <Card key={course.course_id} style={styles.card}>
-            <Card.Content>
-              <View style={styles.cardHeader}>
-                <Text variant="titleMedium" style={styles.courseCode}>
-                  {course.subject} {course.course_number}
-                </Text>
-                {isOnline && (
-                  <View style={styles.onlineBadge}>
-                    <Text style={styles.onlineBadgeText}>Online</Text>
-                  </View>
-                )}
-              </View>
-              
-              <Text variant="bodyLarge" style={styles.courseName}>{course.course_name}</Text>
-
-              {/* 1. Meeting Times Loop (ONLY ONE LOOP NOW!) */}
-              {course.meeting_times?.map((meetingObj, index) => {
-                const meeting = meetingObj.meetingTime || meetingObj;
-                
-                const begin = meeting.beginTime || meeting.meeting_begin_time;
-                const end = meeting.endTime || meeting.meeting_end_time;
-
-                let days = "";
-                if (meeting.monday) days += "M ";
-                if (meeting.tuesday) days += "T ";
-                if (meeting.wednesday) days += "W ";
-                if (meeting.thursday) days += "Th ";
-                if (meeting.friday) days += "F ";
-                if (meeting.saturday) days += "Sat ";
-
-                return (
-                  <View key={index} style={{ marginTop: 5 }}>
-                    {begin ? (
-                      <Text style={styles.timeText}>
-                        ⏰ {days.trim()} | {formatTime(begin)} - {formatTime(end)}
-                        {meeting.room ? ` (Rm ${meeting.room})` : ''}
-                      </Text>
-                    ) : (
-                      <Text style={styles.timeText}>⏳ Asynchronous (No scheduled time)</Text>
-                    )}
-                  </View>
-                );
-              })}
-
-              {/* 2. Section and Credits Row */}
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 }}>
-                <Text style={{ fontWeight: '600', color: '#555' }}>
-                  Section: {course.section}
-                </Text>
-                <Text style={{ fontWeight: '600', color: '#555' }}>
-                  Credits: {course.credits}
-                </Text>
-              </View>
-{           /* 3. Faculty / Instructor Row */}
-              <View style={{ marginTop: 8, borderTopWidth: 1, borderTopColor: '#eee', paddingTop: 5 }}>
-                <Text style={{ fontSize: 13, color: '#666' }}>
-                  👤 Faculty: {course.faculty && course.faculty.length > 0 
-                    ? [...new Set(course.faculty)].join(', ') 
-                    : "Staff"}
-                </Text>
-              </View>
-
-              {/* 4. Enrollment Status Row */}
-              <View style={{ marginTop: 8, borderTopWidth: 1, borderTopColor: '#eee', paddingTop: 5 }}>
-                <Text style={{ fontSize: 13, color: '#666' }}>
-                  {(() => {
-                    const enrl = course.current_enrollment || 0;
-                    const isFull = course.enrollment_is_full;
-                    const max = course.maximumEnrollment || 0;
-                    const seats = course.seatsAvailable || 0;
-
-                    // SCENARIO 1: If you fix Python later and it sends the Max Capacity
-                    if (max > 0) {
-                      if (isFull || enrl >= max || seats <= 0) {
-                        return <Text>📊 Enrollment: {enrl} / {max} <Text style={{ color: '#A5093E', fontWeight: 'bold' }}> (Full)</Text></Text>;
-                      }
-                      return <Text>📊 Enrollment: {enrl} / {max} <Text style={{ color: '#166534', fontWeight: 'bold' }}> ({seats} Seats Available)</Text></Text>;
-                    }
-
-                    // SCENARIO 2: What Python is sending RIGHT NOW (No Max Capacity)
-                    if (isFull) {
-                      return <Text>📊 Enrollment: {enrl} Enrolled <Text style={{ color: '#A5093E', fontWeight: 'bold' }}> (Full)</Text></Text>;
-                    }
-                    return <Text>📊 Enrollment: {enrl} Enrolled <Text style={{ color: '#166534', fontWeight: 'bold' }}> (Open)</Text></Text>;
-                  })()}
-                </Text>
-              </View>   
-
-            </Card.Content>
-            <Card.Actions>
-              {selectedCourses.some(c => c.course_id === course.course_id) ? (
-                <Button 
-                  mode="contained" 
-                  buttonColor="#A5093E" 
-                  onPress={() => toggleCourse(course)}
-                >
-                  Remove from Schedule
-                </Button>
-              ) : (
-            <Button 
-                              mode="contained" 
-                              buttonColor="#002d72" 
-                              onPress={() => {
-                                // 1. DUPLICATE COURSE CHECK
-                                const duplicateCourse = selectedCourses.find(
-                                  c => c.subject === course.subject && c.course_number === course.course_number
-                                );
-                                
-                                if (duplicateCourse) {
-                                  Alert.alert(
-                                    "Duplicate Course",
-                                    `You already have ${course.subject} ${course.course_number} in your schedule.`,
-                                    [{ text: "OK", style: "cancel" }]
-                                  );
-                                  return; 
-                                }
-
-                                // 2. TIME CONFLICT CHECK
-                                const conflictingCourse = getConflict(course, selectedCourses);
-                                
-                                if (conflictingCourse) {
-                                  Alert.alert(
-                                    "Scheduling Conflict",
-                                    `This course overlaps with:\n\n${conflictingCourse.subject} ${conflictingCourse.course_number}: ${conflictingCourse.course_name}`,
-                                    [{ text: "OK", style: "cancel" }]
-                                  );
-                                } else {
-                                  // 3. SUCCESS: Add it to the schedule!
-                                  toggleCourse(course);
-                                }
-                              }}
-                            >
-                              Add to Schedule
-                            </Button>
-              )}
-            </Card.Actions>
-            </Card>
-          );
-        })}
-      </List.Accordion>
+      <SubjectRow
+        subject={subject}
+        isExpanded={expandedSubject === subject}
+        courses={displayCourses[subject]}
+        selectedCourses={selectedCourses}
+        onToggleExpand={handleToggleExpand}
+        onToggleCourse={handleCourseToggle}
+        onPrereqPress={handleOpenPrereq}
+      />
     );
-  };
+  }, [expandedSubject, displayCourses, selectedCourses, handleToggleExpand, handleCourseToggle]);
 
   return (
     <View style={styles.container}>
@@ -595,8 +629,11 @@ const applyFilters = () => {
         onScrollBeginDrag={handleScrollStart}   
         onScrollEndDrag={handleScrollEnd}    
         onMomentumScrollEnd={handleScrollEnd} 
-        // ----------------------------------
-
+        
+        // --- NEW: THE FINAL OPTIMIZATION PROPS ---
+        removeClippedSubviews={true} // Instantly kills items off-screen to save RAM
+        extraData={{ expandedSubject, selectedCoursesLength: selectedCourses.length }} // Tells the list exactly when to care about updates
+        
         initialNumToRender={10}
         maxToRenderPerBatch={5}
         windowSize={5}
@@ -621,7 +658,7 @@ const applyFilters = () => {
                     
                     {sortedSubjects.length === 0 && (
                       <Text style={{ textAlign: 'center', marginTop: 20, color: '#666' }}>
-                        No courses found matching "{searchQuery}".
+                        No courses found, ITZ DA JARDEE FOOLT MAYNE.
                       </Text>
                     )}
                   </>
@@ -729,21 +766,25 @@ const applyFilters = () => {
             ) : (
             <View style={{ height: 450, marginTop: 10, marginHorizontal: -15 }}>
                           <WeekView
-                  events={generateCalendarEvents(selectedCourses)}
+                  events={memoizedEvents}
                   selectedDate={CURRENT_MONDAY} 
                   numberOfDays={7} 
                   fixedHorizontally={true} 
                   timeColumnWidth={35} 
                   formatTimeLabel="h:mm A" 
                   formatDateHeader="dd" 
-                  hoursInDisplay={20} 
-                  startHour={8} 
+                  
+                  
+                  beginAgendaAt={540}  
+                  endAgendaAt={1140}  
+                  hoursInDisplay={10}  
+                 
+
                   headerTextStyle={{ color: '#333', fontWeight: 'bold', fontSize: 12 }} 
                   hourTextStyle={{ color: '#666', fontSize: 10 }} 
                   headerStyle={{ backgroundColor: '#fff', borderBottomWidth: 1, borderColor: '#eee' }}
                   eventContainerStyle={{ borderRadius: 4, padding: 2 }}
                   
-                  // ADD THIS NEW PROPERTY:
                   onEventPress={(event) => {
                     setSelectedEventCourse(event.courseData);
                     setEventModalVisible(true);
@@ -810,10 +851,7 @@ const applyFilters = () => {
                   <Text style={{ color: '#555', marginBottom: 8, fontSize: 15 }}>
                     {(() => {
                       const max = selectedEventCourse.maximumEnrollment || selectedEventCourse.maximum_enrollment || 0;
-                      
-                      // THE FIX: Changed to current_enrollment!
                       const enrl = selectedEventCourse.current_enrollment || 0; 
-                      
                       const seats = selectedEventCourse.seatsAvailable || selectedEventCourse.seats_available || 0;
 
                       if (max === 0) {
@@ -827,6 +865,19 @@ const applyFilters = () => {
                       return <><Text style={{ fontWeight: 'bold' }}>Enrollment:</Text> {enrl} / {max} <Text style={{ color: '#166534', fontWeight: 'bold' }}> ({seats} Available)</Text></>;
                     })()}
                   </Text>
+
+                  {/* --- 🚨 NEW: MOVED PREREQUISITES TO DETAIL MODAL 🚨 --- */}
+                  {selectedEventCourse.prerequisites ? (
+                    <View style={{ marginTop: 15, padding: 12, backgroundColor: '#fdf2f8', borderRadius: 8, borderWidth: 1, borderColor: '#fce7f3' }}>
+                      <Text style={{ fontSize: 14, color: '#A5093E', fontWeight: 'bold', marginBottom: 4 }}>
+                        ⚠️ Prerequisites Required:
+                      </Text>
+                      <Text style={{ fontSize: 13, color: '#666', lineHeight: 20 }}>
+                        {selectedEventCourse.prerequisites}
+                      </Text>
+                    </View>
+                  ) : null}
+
                 </View>
 
                 <View style={{ flexDirection: 'column', gap: 10 }}>
@@ -902,6 +953,31 @@ const applyFilters = () => {
               </Button>
               <Button mode="contained" buttonColor="#002d72" onPress={executeCopy}>
                 Copy to clipboard
+              </Button>
+            </View>
+
+          </View>
+        </View>
+      </Modal>
+      {/* --- NEW: THE PREREQUISITE POP-UP MODAL --- */}
+      <Modal visible={prereqModalVisible} animationType="fade" transparent={true} onRequestClose={() => setPrereqModalVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 }}>
+              <Text variant="titleLarge" style={{ fontWeight: 'bold', color: '#A5093E' }}>Course Prerequisites</Text>
+              <IconButton icon="close" size={20} onPress={() => setPrereqModalVisible(false)} />
+            </View>
+            
+            <ScrollView style={{ maxHeight: 250 }}>
+              <Text style={{ fontSize: 15, color: '#444', lineHeight: 22 }}>
+                {selectedPrereqText}
+              </Text>
+            </ScrollView>
+
+            <View style={{ marginTop: 20 }}>
+              <Button mode="contained" buttonColor="#002d72" onPress={() => setPrereqModalVisible(false)}>
+                Understood
               </Button>
             </View>
 
