@@ -128,16 +128,6 @@ const CourseCard = React.memo(({ course, isSelected, onToggle, onPrereqPress }) 
   return (
     <Card style={styles.card}>
       <Card.Content>
-        <View style={styles.cardHeader}>
-          <Text variant="titleMedium" style={styles.courseCode}>
-            {course.subject} {course.course_number}
-          </Text>
-          {isOnline && (
-            <View style={styles.onlineBadge}>
-              <Text style={styles.onlineBadgeText}>Online</Text>
-            </View>
-          )}
-        </View>
         
         <Text variant="bodyLarge" style={styles.courseName}>{course.course_name}</Text>
 
@@ -193,7 +183,15 @@ const CourseCard = React.memo(({ course, isSelected, onToggle, onPrereqPress }) 
               return <Text>👥 Enrollment: {enrl} Enrolled <Text style={{ color: '#166534', fontWeight: 'bold' }}> (Open)</Text></Text>;
             })()}
           </Text>
-        </View>   
+        </View>
+        {/* --- 🚨 THE NEW CROSS-LIST LOCATION 🚨 --- */}
+        {course.cross_list ? (
+          <View style={{ marginTop: 8, backgroundColor: '#fef08a', padding: 8, borderRadius: 6 }}>
+            <Text style={{ fontSize: 13, color: '#854d0e', fontWeight: 'bold', flexWrap: 'wrap' }}>
+             {typeof course.cross_list === 'string' ? course.cross_list : "Cross-Listed"}
+            </Text>
+          </View>
+        ) : null}   
         {/* --- 🚨 THE NEW CLICKABLE LINK 🚨 --- */}
         {course.prerequisites ? (
           <View style={{ marginTop: 8, paddingTop: 5 }}>
@@ -201,7 +199,7 @@ const CourseCard = React.memo(({ course, isSelected, onToggle, onPrereqPress }) 
               style={{ fontSize: 14, color: '#0284c7', fontWeight: 'bold', textDecorationLine: 'underline' }}
               onPress={() => onPrereqPress(course.prerequisites)}
             >
-              ⚠️ Prerequisite Detected (Tap to view)
+            Prerequisite Detected (Tap to view)
             </Text>
           </View>
         ) : null}
@@ -284,7 +282,8 @@ const handleScrollEnd = () => {
 
   const { globalCourses, setGlobalCourses, selectedCourses, toggleCourse } = useContext(CourseContext);
   // Catch the term info we passed from the previous screen
-  const { termName, termCode } = useLocalSearchParams();
+  const { termName, termCode, subjectCode } = useLocalSearchParams();
+  const selectedSubjectsArray = subjectCode ? subjectCode.split(',') : [];
   const [isRefreshing, setIsRefreshing] = useState(false);
 
 
@@ -362,8 +361,8 @@ const handleRefresh = async () => {
     setIsRefreshing(true);
     
     try {
-      // const apiUrl = `https://udmadvisor-server.onrender.com/api/fetch_courses?term_name=${encodeURIComponent(termName)}&term_code=${termCode}&refresh_course_data=true`;
-      const apiUrl = `https://10.0.53.168/api/fetch_courses?term_name=${encodeURIComponent(termName)}&term_code=${termCode}&refresh_course_data=true`;
+      const apiUrl = `https://udmadvisor-server.onrender.com/api/fetch_courses?term_name=${encodeURIComponent(termName)}&term_code=${termCode}&refresh_course_data=true`;
+      // const apiUrl = `https://10.0.53.168/api/fetch_courses?term_name=${encodeURIComponent(termName)}&term_code=${termCode}&refresh_course_data=true`;
       const response = await fetch(apiUrl);
       
       // 1. Read the raw response text first (in case the Python server crashed entirely and sent HTML)
@@ -384,6 +383,11 @@ const handleRefresh = async () => {
 
       const groupedCourses = {};
       data.forEach(course => {
+        
+        if (selectedSubjectsArray.length > 0 && !selectedSubjectsArray.includes(course.subject)) {
+          return; 
+        }
+
         const category = course.course_description || course.subjectDescription || "Other";
         if (!groupedCourses[category]) groupedCourses[category] = [];
         
@@ -400,9 +404,10 @@ const handleRefresh = async () => {
           enrollment_is_full: course.enrollment_is_full || false,
           maximumEnrollment: course.maximum_enrollment || 0,
           seatsAvailable: course.seats_available || 0,
-          prerequisites: course.prerequisites || course.prerequisiteText || ""
+          prerequisites: course.prerequisites || course.prerequisiteText || "",
+          cross_list: course.cross_list || null
         });
-      });;
+      });
 
       setGlobalCourses(groupedCourses);
       
