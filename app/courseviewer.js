@@ -121,13 +121,27 @@ const formatTime = (t) => (t && t.length >= 4) ? `${t.slice(0, 2)}:${t.slice(2)}
 
 // --- 3. NEW: THE MEMOIZED COURSE CARD ---
 // This stops React from redrawing the cards unless you specifically click "Add" or "Remove" on them!
-const CourseCard = React.memo(({ course, isSelected, onToggle, onPrereqPress }) => {
+const CourseCard = React.memo(({ course, isSelected, onToggle, onPrereqPress, onViewDetailsPress }) => {
   const meeting = course.meeting_times?.[0] || {};
   const isOnline = course.section?.startsWith('OL') || meeting.building === "ONLINE";
 
   return (
     <Card style={styles.card}>
       <Card.Content>
+
+        {/* 🚨 REPLACE THE OLD COURSE NAME WITH THIS ROW 🚨 */}
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <Text variant="bodyLarge" style={[styles.courseName, { flex: 1, paddingRight: 10 }]}>
+            {course.course_name}
+          </Text>
+          <IconButton
+            icon="help-circle-outline"
+            size={24}
+            iconColor="#666"
+            style={{ margin: 0, marginTop: -5, marginRight: -10 }}
+            onPress={() => onViewDetailsPress(course)}
+          />
+        </View>
         
         <Text variant="bodyLarge" style={styles.courseName}>{course.course_name}</Text>
 
@@ -217,8 +231,8 @@ const CourseCard = React.memo(({ course, isSelected, onToggle, onPrereqPress }) 
 });
 
 // --- 4. NEW: THE MEMOIZED ACCORDION ROW ---
-// This acts as a shield. It prevents the 79 closed subjects from redrawing when you open 1 of them!
-const SubjectRow = React.memo(({ subject, isExpanded, courses, selectedCourses, onToggleExpand, onToggleCourse, onPrereqPress }) => {
+// 🚨 ADD 'onViewDetailsPress' to this top list!
+const SubjectRow = React.memo(({ subject, isExpanded, courses, selectedCourses, onToggleExpand, onToggleCourse, onPrereqPress, onViewDetailsPress }) => {
   return (
     <List.Accordion
       title={subject}
@@ -234,20 +248,21 @@ const SubjectRow = React.memo(({ subject, isExpanded, courses, selectedCourses, 
           isSelected={selectedCourses.some(c => c.course_id === course.course_id)}
           onToggle={onToggleCourse}
           onPrereqPress={onPrereqPress}
+          // 🚨 AND PASS IT HERE
+          onViewDetailsPress={onViewDetailsPress} 
         />
       ))}
     </List.Accordion>
   );
 }, (prevProps, nextProps) => {
-  // THE CUSTOM SPEED FILTER:
-  if (prevProps.isExpanded !== nextProps.isExpanded) return false; // Redraw if it is opening/closing
+  if (prevProps.isExpanded !== nextProps.isExpanded) return false;
   if (prevProps.subject !== nextProps.subject) return false;
   if (prevProps.courses !== nextProps.courses) return false;
   
-  // If the accordion is currently OPEN, we must redraw it if they add/drop a class so the button updates
+  // 🚨 ADD THIS LINE so the speed-shield doesn't block the new function
+  if (prevProps.onViewDetailsPress !== nextProps.onViewDetailsPress) return false;
+
   if (nextProps.isExpanded && prevProps.selectedCourses !== nextProps.selectedCourses) return false;
-  
-  // Otherwise, SKIP REDRAWING THIS ROW!
   return true; 
 });
 
@@ -291,6 +306,14 @@ const handleScrollEnd = () => {
   const [displayCourses, setDisplayCourses] = useState({});
 
   const [eventModalVisible, setEventModalVisible] = useState(false);
+  // 🚨 ADD THESE NEW LINES 🚨
+  const [eventModalSource, setEventModalSource] = useState('calendar'); 
+
+  const handleOpenCourseDetails = useCallback((course) => {
+    setSelectedEventCourse(course);
+    setEventModalSource('list');
+    setEventModalVisible(true);
+  }, []);
   const [selectedEventCourse, setSelectedEventCourse] = useState(null);
 
   // --- NEW: GOOGLE-STYLE LIVE SEARCH STATE ---
@@ -591,9 +614,11 @@ const applyFilters = () => {
         onToggleExpand={handleToggleExpand}
         onToggleCourse={handleCourseToggle}
         onPrereqPress={handleOpenPrereq}
+        // 🚨 ADD THIS LINE HERE
+        onViewDetailsPress={handleOpenCourseDetails} 
       />
     );
-  }, [expandedSubject, displayCourses, selectedCourses, handleToggleExpand, handleCourseToggle]);
+  }, [expandedSubject, displayCourses, selectedCourses, handleToggleExpand, handleCourseToggle, handleOpenPrereq, handleOpenCourseDetails]);
 
   return (
     <View style={styles.container}>
@@ -886,17 +911,22 @@ const applyFilters = () => {
                 </View>
 
                 <View style={{ flexDirection: 'column', gap: 10 }}>
-                  <Button 
-                    mode="contained" 
-                    buttonColor="#A5093E" 
-                    onPress={() => {
-                      // Drop the course and close the modal!
-                      toggleCourse(selectedEventCourse);
-                      setEventModalVisible(false);
-                    }}
-                  >
-                    Remove from Schedule
-                  </Button>
+                  
+                  {/* 🚨 THE FIX: Only show this button if the source is 'calendar' 🚨 */}
+                  {eventModalSource === 'calendar' && (
+                    <Button 
+                      mode="contained" 
+                      buttonColor="#A5093E" 
+                      onPress={() => {
+                        // Drop the course and close the modal!
+                        toggleCourse(selectedEventCourse);
+                        setEventModalVisible(false);
+                      }}
+                    >
+                      Remove from Schedule
+                    </Button>
+                  )}
+                  
                   <Button 
                     mode="outlined" 
                     textColor="#666" 
