@@ -8,8 +8,8 @@ import { CourseContext } from '../store/CourseContext';
 import FeedbackButton from '../components/FeedbackButton';
 import subjectsData from '../store/full_courses.json';
 
-// const API_BASE_URL = "https://udmadvisor-server.onrender.com";
-const API_BASE_URL = "http://10.0.53.168:5000";
+const API_BASE_URL = "https://udmadvisor-server.onrender.com";
+// const API_BASE_URL = "http://10.0.53.168:5000";
 
 const SubjectCheckbox = React.memo(({ code, name, isChecked, onToggle }) => {
   return (
@@ -107,6 +107,11 @@ export default function SelectTerm() {
 
       const groupedCourses = {};
       data.forEach(course => {
+        
+        if (!selectedSubjects.includes(course.subject)) {
+          return; 
+        }
+
         const category = course.course_description || course.subjectDescription || "Other";
         if (!groupedCourses[category]) groupedCourses[category] = [];
         
@@ -123,9 +128,10 @@ export default function SelectTerm() {
           enrollment_is_full: course.enrollment_is_full || false,
           maximumEnrollment: course.maximum_enrollment || 0,
           seatsAvailable: course.seats_available || 0,
-          prerequisites: course.prerequisites || course.prerequisiteText || ""
+          prerequisites: course.prerequisites || course.prerequisiteText || "",
+          cross_list: course.cross_list || null
         });  
-      });;
+      });
 
       setGlobalCourses(groupedCourses);
       
