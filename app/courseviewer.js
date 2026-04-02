@@ -143,7 +143,6 @@ const CourseCard = React.memo(({ course, isSelected, onToggle, onPrereqPress, on
           />
         </View>
         
-        <Text variant="bodyLarge" style={styles.courseName}>{course.course_name}</Text>
 
         {course.meeting_times?.map((meetingObj, index) => {
           const meeting = meetingObj.meetingTime || meetingObj;
@@ -318,6 +317,7 @@ const handleScrollEnd = () => {
 
   // --- NEW: GOOGLE-STYLE LIVE SEARCH STATE ---
   const [searchQuery, setSearchQuery] = useState('');
+  const isFiltered = searchQuery.trim().length > 0;
 
   // --- NEW: COPY TO CLIPBOARD STATE ---
   const [copyModalVisible, setCopyModalVisible] = useState(false);
@@ -462,6 +462,23 @@ const handleRefresh = async () => {
   const [searchNumber, setSearchNumber] = useState('');
   const [searchTitle, setSearchTitle] = useState('');
   const [searchAttribute, setSearchAttribute] = useState('');
+
+  const isModalFiltered = searchSubject.trim().length > 0 || 
+                          searchNumber.trim().length > 0 || 
+                          searchTitle.trim().length > 0 || 
+                          searchAttribute.trim().length > 0;
+
+  // 🚨 NEW: This clears only the modal filters and resets the list
+  const clearModalFilters = useCallback(() => {
+    setSearchSubject('');
+    setSearchSubjectText('');
+    setSearchNumber('');
+    setSearchTitle('');
+    setSearchAttribute('');
+    
+    // Resets the screen back to all courses
+    setDisplayCourses(globalCourses || {}); 
+  }, [globalCourses]);
 
   // NEW: State to track exactly which Accordion is currently open
   const [expandedSubject, setExpandedSubject] = useState(null);
@@ -648,51 +665,59 @@ const applyFilters = () => {
         <Appbar.Action icon="magnify" color="#fff" onPress={() => setFilterVisible(true)} />
       </Appbar.Header>
 
+      {/* --- 🚨 NEW: MODAL CLEAR FILTER BANNER --- */}
+      {isModalFiltered && (
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#ffe4e6', paddingVertical: 8, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: '#fecdd3' }}>
+          <Text style={{ color: '#A5093E', fontWeight: 'bold', fontSize: 14 }}>
+            Filters Applied
+          </Text>
+          <Button 
+            mode="contained" 
+            buttonColor="#A5093E" 
+            compact 
+            onPress={clearModalFilters} 
+            icon="filter-remove-outline"
+          >
+            Clear Filter
+          </Button>
+        </View>
+      )}
+
       {/* Replaced ScrollView with FlatList */}
-      <FlatList
+     <FlatList
         data={sortedSubjects}
         keyExtractor={(item) => item}
         renderItem={renderSubject}
         contentContainerStyle={styles.scrollContent}
         
-        // --- YOUR NEW DELAYED DETECTORS ---
         onScrollBeginDrag={handleScrollStart}   
         onScrollEndDrag={handleScrollEnd}    
         onMomentumScrollEnd={handleScrollEnd} 
         
-        // --- NEW: THE FINAL OPTIMIZATION PROPS ---
-        removeClippedSubviews={true} // Instantly kills items off-screen to save RAM
-        extraData={{ expandedSubject, selectedCoursesLength: selectedCourses.length }} // Tells the list exactly when to care about updates
+        removeClippedSubviews={true} 
+        extraData={{ expandedSubject, selectedCoursesLength: selectedCourses.length, isFiltered }} // 🚨 ADD isFiltered here
         
         initialNumToRender={10}
         maxToRenderPerBatch={5}
         windowSize={5}
-        // FlatList lets us put the title and buttons inside a Header component so they scroll naturally
+        
         ListHeaderComponent={
-                  <>
-                    {/* --- NEW GOOGLE-STYLE SEARCH BAR --- */}
-                    {/* <View style={{ paddingTop: 5, paddingBottom: 5 }}>
-                      <Searchbar
-                        placeholder="Search Subjects, Titles, Numbers, or Attributes..."
-                        onChangeText={setSearchQuery}
-                        value={searchQuery}
-                        style={{ backgroundColor: '#fff', borderWidth: 1, borderColor: '#ccc', borderRadius: 8 }}
-                        inputStyle={{ color: '#333' }}
-                        iconColor="#A5093E"
-                        elevation={0}
-                      />
-                    </View> */}
-
-                    <Divider style={{ marginVertical: 15 }} />
-                    <Text variant="titleLarge" style={styles.pageTitle}>All Courses</Text>
-                    
-                    {sortedSubjects.length === 0 && (
-                      <Text style={{ textAlign: 'center', marginTop: 20, color: '#666' }}>
-                        No courses found, ITZ DA JARDEE FOOLT MAYNE.
-                      </Text>
-                    )}
-                  </>
-                }
+          <>
+            <Divider style={{ marginVertical: 15 }} />
+            
+            <Text variant="titleLarge" style={styles.pageTitle}>
+              {isModalFiltered ? 'Filtered Results' : 'All Courses'}
+            </Text>
+            
+            {sortedSubjects.length === 0 && (
+              <View style={{ padding: 20, alignItems: 'center' }}>
+                <Text style={{ textAlign: 'center', color: '#666', fontSize: 16 }}>
+                  No courses match your filter.
+                </Text>
+              </View>
+            )}
+          </>
+        }
       />
 
       <Modal visible={filterVisible} animationType="slide" transparent={true} onRequestClose={() => setFilterVisible(false)}>
