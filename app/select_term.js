@@ -129,7 +129,8 @@ export default function SelectTerm() {
           maximumEnrollment: course.maximum_enrollment || 0,
           seatsAvailable: course.seats_available || 0,
           prerequisites: course.prerequisites || course.prerequisiteText || "",
-          cross_list: course.cross_list || null
+          cross_list: course.cross_list || null,
+          attributes: course.attributes || []
         });  
       });
 

@@ -231,7 +231,28 @@ const CourseCard = React.memo(({ course, isSelected, onToggle, onPrereqPress, on
 
 // --- 4. NEW: THE MEMOIZED ACCORDION ROW ---
 // 🚨 ADD 'onViewDetailsPress' to this top list!
+// --- 4. NEW: THE MEMOIZED & PROGRESSIVE ACCORDION ROW ---
 const SubjectRow = React.memo(({ subject, isExpanded, courses, selectedCourses, onToggleExpand, onToggleCourse, onPrereqPress, onViewDetailsPress }) => {
+  
+  // 🚨 THE FIX: Start by only preparing 5 courses
+  const [visibleCount, setVisibleCount] = useState(5);
+
+  // 🚨 THE FIX: Gradually load the rest AFTER the accordion opens
+  useEffect(() => {
+    if (isExpanded) {
+      // If we haven't loaded them all yet, load 5 more every 50 milliseconds
+      if (visibleCount < (courses?.length || 0)) {
+        const timer = setTimeout(() => {
+          setVisibleCount(prev => prev + 5);
+        }, 50); 
+        return () => clearTimeout(timer);
+      }
+    } else {
+      // When closed, reset back to 5 so it's ready for the next smooth open
+      setVisibleCount(5);
+    }
+  }, [isExpanded, visibleCount, courses]);
+
   return (
     <List.Accordion
       title={subject}
@@ -240,14 +261,14 @@ const SubjectRow = React.memo(({ subject, isExpanded, courses, selectedCourses, 
       expanded={isExpanded}
       onPress={() => onToggleExpand(subject)}
     >
-      {isExpanded && courses?.map((course) => (
+      {/* 🚨 THE FIX: Use .slice() to only render the visibleCount amount */}
+      {isExpanded && courses?.slice(0, visibleCount).map((course) => (
         <CourseCard 
           key={course.course_id} 
           course={course} 
           isSelected={selectedCourses.some(c => c.course_id === course.course_id)}
           onToggle={onToggleCourse}
           onPrereqPress={onPrereqPress}
-          // 🚨 AND PASS IT HERE
           onViewDetailsPress={onViewDetailsPress} 
         />
       ))}
@@ -257,10 +278,7 @@ const SubjectRow = React.memo(({ subject, isExpanded, courses, selectedCourses, 
   if (prevProps.isExpanded !== nextProps.isExpanded) return false;
   if (prevProps.subject !== nextProps.subject) return false;
   if (prevProps.courses !== nextProps.courses) return false;
-  
-  // 🚨 ADD THIS LINE so the speed-shield doesn't block the new function
   if (prevProps.onViewDetailsPress !== nextProps.onViewDetailsPress) return false;
-
   if (nextProps.isExpanded && prevProps.selectedCourses !== nextProps.selectedCourses) return false;
   return true; 
 });
@@ -428,7 +446,8 @@ const handleRefresh = async () => {
           maximumEnrollment: course.maximum_enrollment || 0,
           seatsAvailable: course.seats_available || 0,
           prerequisites: course.prerequisites || course.prerequisiteText || "",
-          cross_list: course.cross_list || null
+          cross_list: course.cross_list || null,
+          attributes: course.attributes || []
         });
       });
 
@@ -463,22 +482,22 @@ const handleRefresh = async () => {
   const [searchTitle, setSearchTitle] = useState('');
   const [searchAttribute, setSearchAttribute] = useState('');
 
-  const isModalFiltered = searchSubject.trim().length > 0 || 
+const isModalFiltered = searchSubject.trim().length > 0 || 
                           searchNumber.trim().length > 0 || 
                           searchTitle.trim().length > 0 || 
                           searchAttribute.trim().length > 0;
 
-  // 🚨 NEW: This clears only the modal filters and resets the list
-  const clearModalFilters = useCallback(() => {
+  const clearModalFilters = () => {
     setSearchSubject('');
-    setSearchSubjectText('');
+    // If you have a separate text state for the subject dropdown, clear it too:
+    if (typeof setSearchSubjectText === 'function') setSearchSubjectText(''); 
     setSearchNumber('');
     setSearchTitle('');
     setSearchAttribute('');
     
-    // Resets the screen back to all courses
+    // Reset the display to show all courses
     setDisplayCourses(globalCourses || {}); 
-  }, [globalCourses]);
+  };
 
   // NEW: State to track exactly which Accordion is currently open
   const [expandedSubject, setExpandedSubject] = useState(null);
@@ -524,18 +543,25 @@ const handleRefresh = async () => {
 
 const applyFilters = () => {
     const newFilteredList = {};
-    const sortedSubjects = Object.keys(displayCourses || {}).sort();
     
-    // THE FIX: We added || {} right here!
     Object.keys(globalCourses || {}).forEach(category => {
       const filteredCourses = globalCourses[category].filter(course => {
         const matchSubject = searchSubject === '' || 
           (course.subject && course.subject.toLowerCase().includes(searchSubject.toLowerCase()));
+        
         const matchNumber = searchNumber === '' || 
           (course.course_number && course.course_number.toString().includes(searchNumber));
+        
         const matchTitle = searchTitle === '' || 
           (course.course_name && course.course_name.toLowerCase().includes(searchTitle.toLowerCase()));
-        return matchSubject && matchNumber && matchTitle;
+        
+        // 🚨 THE FIX: Map through the attributes array and check the "code" key
+        const matchAttribute = searchAttribute === '' || 
+            (course.attributes && Array.isArray(course.attributes) && course.attributes.some(attr => 
+              attr.code && attr.code.toLowerCase().includes(searchAttribute.toLowerCase())
+            ));
+
+        return matchSubject && matchNumber && matchTitle && matchAttribute;
       });
       
       if (filteredCourses.length > 0) {
@@ -544,7 +570,7 @@ const applyFilters = () => {
     });
     
     setDisplayCourses(newFilteredList);
-    setFilterVisible(false);
+    setFilterVisible(false); // Close modal after applying
   };
 
 // --- NEW: DYNAMIC CLIPBOARD GENERATOR ---
@@ -665,9 +691,18 @@ const applyFilters = () => {
         <Appbar.Action icon="magnify" color="#fff" onPress={() => setFilterVisible(true)} />
       </Appbar.Header>
 
-      {/* --- 🚨 NEW: MODAL CLEAR FILTER BANNER --- */}
+{/* --- CONDITIONAL CLEAR FILTER BANNER --- */}
       {isModalFiltered && (
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#ffe4e6', paddingVertical: 8, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: '#fecdd3' }}>
+        <View style={{ 
+          flexDirection: 'row', 
+          justifyContent: 'space-between', 
+          alignItems: 'center', 
+          backgroundColor: '#ffe4e6', // Light pink background
+          paddingVertical: 8, 
+          paddingHorizontal: 16, 
+          borderBottomWidth: 1, 
+          borderBottomColor: '#fecdd3' 
+        }}>
           <Text style={{ color: '#A5093E', fontWeight: 'bold', fontSize: 14 }}>
             Filters Applied
           </Text>
@@ -678,7 +713,7 @@ const applyFilters = () => {
             onPress={clearModalFilters} 
             icon="filter-remove-outline"
           >
-            Clear Filter
+            Clear
           </Button>
         </View>
       )}
@@ -842,6 +877,7 @@ const applyFilters = () => {
                   
                   onEventPress={(event) => {
                     setSelectedEventCourse(event.courseData);
+                    setEventModalSource('calendar');
                     setEventModalVisible(true);
                   }}
                 />
