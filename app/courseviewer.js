@@ -132,6 +132,7 @@ const CourseCard = React.memo(({ course, isSelected, onToggle, onPrereqPress, on
         {/* 🚨 REPLACE THE OLD COURSE NAME WITH THIS ROW 🚨 */}
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <Text variant="bodyLarge" style={[styles.courseName, { flex: 1, paddingRight: 10 }]}>
+
             {course.course_name}
           </Text>
           <IconButton
@@ -141,6 +142,12 @@ const CourseCard = React.memo(({ course, isSelected, onToggle, onPrereqPress, on
             style={{ margin: 0, marginTop: -5, marginRight: -10 }}
             onPress={() => onViewDetailsPress(course)}
           />
+        </View>
+
+        <View style={{ marginTop: 8, borderTopWidth: 1, borderTopColor: '#eee', paddingTop: 5 }}>
+          <Text style={{ fontSize: 13, color: '#666' }}>
+          🏷️ Course Code: {course.subject} {course.course_number}
+          </Text>
         </View>
         
 
@@ -171,8 +178,8 @@ const CourseCard = React.memo(({ course, isSelected, onToggle, onPrereqPress, on
         })}
 
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 }}>
-          <Text style={{ fontWeight: '600', color: '#555' }}>Section: {course.section}</Text>
-          <Text style={{ fontWeight: '600', color: '#555' }}>Credits: {course.credits}</Text>
+          <Text style={{ fontWeight: '600', color: '#555' }}>📌 Section: {course.section}</Text>
+          <Text style={{ fontWeight: '600', color: '#555' }}>⭐ Credits: {course.credits}</Text>
         </View>
 
         <View style={{ marginTop: 8, borderTopWidth: 1, borderTopColor: '#eee', paddingTop: 5 }}>
@@ -180,6 +187,7 @@ const CourseCard = React.memo(({ course, isSelected, onToggle, onPrereqPress, on
             👨‍🏫 Faculty: {course.faculty && course.faculty.length > 0 ? [...new Set(course.faculty)].join(', ') : "Staff"}
           </Text>
         </View>
+
 
         <View style={{ marginTop: 8, borderTopWidth: 1, borderTopColor: '#eee', paddingTop: 5 }}>
           <Text style={{ fontSize: 13, color: '#666' }}>
@@ -936,6 +944,11 @@ const applyFilters = () => {
                   </Text>
                   <Text style={{ color: '#555', marginBottom: 8, fontSize: 15 }}>
                     <Text style={{ fontWeight: 'bold' }}>Instructor:</Text> {selectedEventCourse.faculty && selectedEventCourse.faculty.length > 0 ? selectedEventCourse.faculty.join(', ') : "Staff"}
+                  </Text>
+                  <Text style={{ color: '#555', marginBottom: 8, fontSize: 15 }}>
+                    <Text style={{ fontWeight: 'bold' }}>Attributes:</Text> {selectedEventCourse.attributes && selectedEventCourse.attributes.length > 0 
+                      ? selectedEventCourse.attributes.map(attr => attr.code).join(', ') 
+                      : "None"}
                   </Text>
                   
 {/* ENROLLMENT LINE FOR THE POP-UP */}
