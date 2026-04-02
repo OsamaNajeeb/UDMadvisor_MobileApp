@@ -143,7 +143,6 @@ const CourseCard = React.memo(({ course, isSelected, onToggle, onPrereqPress, on
           />
         </View>
         
-        <Text variant="bodyLarge" style={styles.courseName}>{course.course_name}</Text>
 
         {course.meeting_times?.map((meetingObj, index) => {
           const meeting = meetingObj.meetingTime || meetingObj;
@@ -232,7 +231,28 @@ const CourseCard = React.memo(({ course, isSelected, onToggle, onPrereqPress, on
 
 // --- 4. NEW: THE MEMOIZED ACCORDION ROW ---
 // 🚨 ADD 'onViewDetailsPress' to this top list!
+// --- 4. NEW: THE MEMOIZED & PROGRESSIVE ACCORDION ROW ---
 const SubjectRow = React.memo(({ subject, isExpanded, courses, selectedCourses, onToggleExpand, onToggleCourse, onPrereqPress, onViewDetailsPress }) => {
+  
+  // 🚨 THE FIX: Start by only preparing 5 courses
+  const [visibleCount, setVisibleCount] = useState(5);
+
+  // 🚨 THE FIX: Gradually load the rest AFTER the accordion opens
+  useEffect(() => {
+    if (isExpanded) {
+      // If we haven't loaded them all yet, load 5 more every 50 milliseconds
+      if (visibleCount < (courses?.length || 0)) {
+        const timer = setTimeout(() => {
+          setVisibleCount(prev => prev + 5);
+        }, 50); 
+        return () => clearTimeout(timer);
+      }
+    } else {
+      // When closed, reset back to 5 so it's ready for the next smooth open
+      setVisibleCount(5);
+    }
+  }, [isExpanded, visibleCount, courses]);
+
   return (
     <List.Accordion
       title={subject}
@@ -241,14 +261,14 @@ const SubjectRow = React.memo(({ subject, isExpanded, courses, selectedCourses, 
       expanded={isExpanded}
       onPress={() => onToggleExpand(subject)}
     >
-      {isExpanded && courses?.map((course) => (
+      {/* 🚨 THE FIX: Use .slice() to only render the visibleCount amount */}
+      {isExpanded && courses?.slice(0, visibleCount).map((course) => (
         <CourseCard 
           key={course.course_id} 
           course={course} 
           isSelected={selectedCourses.some(c => c.course_id === course.course_id)}
           onToggle={onToggleCourse}
           onPrereqPress={onPrereqPress}
-          // 🚨 AND PASS IT HERE
           onViewDetailsPress={onViewDetailsPress} 
         />
       ))}
@@ -258,10 +278,7 @@ const SubjectRow = React.memo(({ subject, isExpanded, courses, selectedCourses, 
   if (prevProps.isExpanded !== nextProps.isExpanded) return false;
   if (prevProps.subject !== nextProps.subject) return false;
   if (prevProps.courses !== nextProps.courses) return false;
-  
-  // 🚨 ADD THIS LINE so the speed-shield doesn't block the new function
   if (prevProps.onViewDetailsPress !== nextProps.onViewDetailsPress) return false;
-
   if (nextProps.isExpanded && prevProps.selectedCourses !== nextProps.selectedCourses) return false;
   return true; 
 });
@@ -318,6 +335,7 @@ const handleScrollEnd = () => {
 
   // --- NEW: GOOGLE-STYLE LIVE SEARCH STATE ---
   const [searchQuery, setSearchQuery] = useState('');
+  const isFiltered = searchQuery.trim().length > 0;
 
   // --- NEW: COPY TO CLIPBOARD STATE ---
   const [copyModalVisible, setCopyModalVisible] = useState(false);
@@ -428,7 +446,8 @@ const handleRefresh = async () => {
           maximumEnrollment: course.maximum_enrollment || 0,
           seatsAvailable: course.seats_available || 0,
           prerequisites: course.prerequisites || course.prerequisiteText || "",
-          cross_list: course.cross_list || null
+          cross_list: course.cross_list || null,
+          attributes: course.attributes || []
         });
       });
 
@@ -462,6 +481,23 @@ const handleRefresh = async () => {
   const [searchNumber, setSearchNumber] = useState('');
   const [searchTitle, setSearchTitle] = useState('');
   const [searchAttribute, setSearchAttribute] = useState('');
+
+const isModalFiltered = searchSubject.trim().length > 0 || 
+                          searchNumber.trim().length > 0 || 
+                          searchTitle.trim().length > 0 || 
+                          searchAttribute.trim().length > 0;
+
+  const clearModalFilters = () => {
+    setSearchSubject('');
+    // If you have a separate text state for the subject dropdown, clear it too:
+    if (typeof setSearchSubjectText === 'function') setSearchSubjectText(''); 
+    setSearchNumber('');
+    setSearchTitle('');
+    setSearchAttribute('');
+    
+    // Reset the display to show all courses
+    setDisplayCourses(globalCourses || {}); 
+  };
 
   // NEW: State to track exactly which Accordion is currently open
   const [expandedSubject, setExpandedSubject] = useState(null);
@@ -507,18 +543,25 @@ const handleRefresh = async () => {
 
 const applyFilters = () => {
     const newFilteredList = {};
-    const sortedSubjects = Object.keys(displayCourses || {}).sort();
     
-    // THE FIX: We added || {} right here!
     Object.keys(globalCourses || {}).forEach(category => {
       const filteredCourses = globalCourses[category].filter(course => {
         const matchSubject = searchSubject === '' || 
           (course.subject && course.subject.toLowerCase().includes(searchSubject.toLowerCase()));
+        
         const matchNumber = searchNumber === '' || 
           (course.course_number && course.course_number.toString().includes(searchNumber));
+        
         const matchTitle = searchTitle === '' || 
           (course.course_name && course.course_name.toLowerCase().includes(searchTitle.toLowerCase()));
-        return matchSubject && matchNumber && matchTitle;
+        
+        // 🚨 THE FIX: Map through the attributes array and check the "code" key
+        const matchAttribute = searchAttribute === '' || 
+            (course.attributes && Array.isArray(course.attributes) && course.attributes.some(attr => 
+              attr.code && attr.code.toLowerCase().includes(searchAttribute.toLowerCase())
+            ));
+
+        return matchSubject && matchNumber && matchTitle && matchAttribute;
       });
       
       if (filteredCourses.length > 0) {
@@ -527,7 +570,7 @@ const applyFilters = () => {
     });
     
     setDisplayCourses(newFilteredList);
-    setFilterVisible(false);
+    setFilterVisible(false); // Close modal after applying
   };
 
 // --- NEW: DYNAMIC CLIPBOARD GENERATOR ---
@@ -648,51 +691,68 @@ const applyFilters = () => {
         <Appbar.Action icon="magnify" color="#fff" onPress={() => setFilterVisible(true)} />
       </Appbar.Header>
 
+{/* --- CONDITIONAL CLEAR FILTER BANNER --- */}
+      {isModalFiltered && (
+        <View style={{ 
+          flexDirection: 'row', 
+          justifyContent: 'space-between', 
+          alignItems: 'center', 
+          backgroundColor: '#ffe4e6', // Light pink background
+          paddingVertical: 8, 
+          paddingHorizontal: 16, 
+          borderBottomWidth: 1, 
+          borderBottomColor: '#fecdd3' 
+        }}>
+          <Text style={{ color: '#A5093E', fontWeight: 'bold', fontSize: 14 }}>
+            Filters Applied
+          </Text>
+          <Button 
+            mode="contained" 
+            buttonColor="#A5093E" 
+            compact 
+            onPress={clearModalFilters} 
+            icon="filter-remove-outline"
+          >
+            Clear
+          </Button>
+        </View>
+      )}
+
       {/* Replaced ScrollView with FlatList */}
-      <FlatList
+     <FlatList
         data={sortedSubjects}
         keyExtractor={(item) => item}
         renderItem={renderSubject}
         contentContainerStyle={styles.scrollContent}
         
-        // --- YOUR NEW DELAYED DETECTORS ---
         onScrollBeginDrag={handleScrollStart}   
         onScrollEndDrag={handleScrollEnd}    
         onMomentumScrollEnd={handleScrollEnd} 
         
-        // --- NEW: THE FINAL OPTIMIZATION PROPS ---
-        removeClippedSubviews={true} // Instantly kills items off-screen to save RAM
-        extraData={{ expandedSubject, selectedCoursesLength: selectedCourses.length }} // Tells the list exactly when to care about updates
+        removeClippedSubviews={true} 
+        extraData={{ expandedSubject, selectedCoursesLength: selectedCourses.length, isFiltered }} // 🚨 ADD isFiltered here
         
         initialNumToRender={10}
         maxToRenderPerBatch={5}
         windowSize={5}
-        // FlatList lets us put the title and buttons inside a Header component so they scroll naturally
+        
         ListHeaderComponent={
-                  <>
-                    {/* --- NEW GOOGLE-STYLE SEARCH BAR --- */}
-                    {/* <View style={{ paddingTop: 5, paddingBottom: 5 }}>
-                      <Searchbar
-                        placeholder="Search Subjects, Titles, Numbers, or Attributes..."
-                        onChangeText={setSearchQuery}
-                        value={searchQuery}
-                        style={{ backgroundColor: '#fff', borderWidth: 1, borderColor: '#ccc', borderRadius: 8 }}
-                        inputStyle={{ color: '#333' }}
-                        iconColor="#A5093E"
-                        elevation={0}
-                      />
-                    </View> */}
-
-                    <Divider style={{ marginVertical: 15 }} />
-                    <Text variant="titleLarge" style={styles.pageTitle}>All Courses</Text>
-                    
-                    {sortedSubjects.length === 0 && (
-                      <Text style={{ textAlign: 'center', marginTop: 20, color: '#666' }}>
-                        No courses found, ITZ DA JARDEE FOOLT MAYNE.
-                      </Text>
-                    )}
-                  </>
-                }
+          <>
+            <Divider style={{ marginVertical: 15 }} />
+            
+            <Text variant="titleLarge" style={styles.pageTitle}>
+              {isModalFiltered ? 'Filtered Results' : 'All Courses'}
+            </Text>
+            
+            {sortedSubjects.length === 0 && (
+              <View style={{ padding: 20, alignItems: 'center' }}>
+                <Text style={{ textAlign: 'center', color: '#666', fontSize: 16 }}>
+                  No courses match your filter.
+                </Text>
+              </View>
+            )}
+          </>
+        }
       />
 
       <Modal visible={filterVisible} animationType="slide" transparent={true} onRequestClose={() => setFilterVisible(false)}>
@@ -817,6 +877,7 @@ const applyFilters = () => {
                   
                   onEventPress={(event) => {
                     setSelectedEventCourse(event.courseData);
+                    setEventModalSource('calendar');
                     setEventModalVisible(true);
                   }}
                 />
