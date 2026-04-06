@@ -222,13 +222,15 @@ export default function PlanDetails() {
             >
               Export to PDF
             </Button>
-            <Button 
-              mode="outlined" 
-              textColor="#002d72" 
+            <Button
+              mode="outlined"
+              textColor="#002d72"
               style={{ borderColor: '#002d72' }}
-              onPress={createPersonalizedPlan}
-              loading={isLinking}
-              disabled={isLinking}
+              onPress={() => router.push({
+                pathname: '/per_plan',
+                // 🚨 SAFE METHOD: Just pass the tiny IDs!
+                params: { plan_id: plan_id, year_id: year_id } 
+              })}
             >
               Personalize Plan
             </Button>
