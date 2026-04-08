@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { View, ScrollView, StyleSheet, ActivityIndicator, Alert, Modal } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, ScrollView, StyleSheet, ActivityIndicator, Alert, Modal, TouchableOpacity } from 'react-native';
 import { Text, Appbar, Button, Card, Divider, TextInput } from 'react-native-paper';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Picker } from '@react-native-picker/picker';
@@ -26,7 +26,7 @@ const isCompleted = (status) => {
 };
 
 const getStatusColor = (status) => {
-  switch ((status || 'planned').toLowerCase()) {
+  switch ((status || '').toLowerCase()) {
     case 'planned': return '#ffeba8';
     case 'in progress': return '#a5daff';
     case 'completed': return '#b6ffbc';
@@ -34,13 +34,25 @@ const getStatusColor = (status) => {
     case 'substituted': return '#f7c2ff';
     case 'waived': return '#d7ffaa';
     case 'transferred': return '#9fffe2';
-    default: return '#ffeba8'; 
+    default: return '#f0f0f0'; 
+  }
+};
+
+const getStatusLabel = (status) => {
+  switch ((status || '').toLowerCase()) {
+    case 'planned': return 'Planned';
+    case 'in progress': return 'In Progress';
+    case 'completed': return 'Completed';
+    case 'failed': return 'Failed';
+    case 'substituted': return 'Substituted';
+    case 'waived': return 'Waived';
+    case 'transferred': return 'Transferred';
+    default: return 'None';
   }
 };
 
 export default function PersonalizePlan() {
-const router = useRouter();
-  // 🚨 SAFE METHOD: Catch the tiny IDs
+  const router = useRouter();
   const { plan_id, year_id } = useLocalSearchParams();
 
   const [plan, setPlan] = useState(null);
@@ -51,7 +63,20 @@ const router = useRouter();
   const [generatedLink, setGeneratedLink] = useState('');
   const [isLinking, setIsLinking] = useState(false);
 
+  // Single shared status picker modal (instead of 40+ inline Pickers)
+  const [statusModalVisible, setStatusModalVisible] = useState(false);
+  const [statusModalTarget, setStatusModalTarget] = useState(null);
+  const [tempStatus, setTempStatus] = useState('');
+
+  // Single shared note editor modal
+  const [noteModalVisible, setNoteModalVisible] = useState(false);
+  const [noteModalTarget, setNoteModalTarget] = useState(null);
+  const [tempNote, setTempNote] = useState('');
+
   useEffect(() => {
+    setPlan(null);
+    setLoading(true);
+
     const fetchPlanDetails = async () => {
       if (!plan_id || !year_id) {
         Alert.alert("Error", "Missing plan details.");
@@ -61,10 +86,17 @@ const router = useRouter();
 
       try {
         const response = await fetch(`${API_BASE_URL}/api/get_plan?plan_id=${plan_id}&year_id=${year_id}`);
-        if (!response.ok) throw new Error("Failed to fetch plan details");
-        const data = await response.json();
+        
+        const rawText = await response.text();
+        let data;
+        try {
+          data = JSON.parse(rawText);
+        } catch (e) {
+          throw new Error("Server returned an invalid response. It may be starting up — try again in a moment.");
+        }
+        
+        if (!response.ok) throw new Error(data?.message || "Failed to fetch plan details");
 
-        // Hydrate all courses inside data.plan.semesters
         const hydratedSemesters = data.plan.semesters.map(sem => ({
           ...sem,
           courses: sem.courses.map(course => {
@@ -72,20 +104,19 @@ const router = useRouter();
               return {
                 ...course,
                 courses: course.courses.map(or_group => 
-                  or_group.map(inner => ({ ...inner, status: inner.status || 'planned', notes: inner.notes || '' }))
+                  or_group.map(inner => ({ ...inner, status: inner.status || '', notes: inner.notes || '' }))
                 )
               };
             }
-            return { ...course, status: course.status || 'planned', notes: course.notes || '' };
+            return { ...course, status: course.status || '', notes: course.notes || '' };
           })
         }));
 
-        // 🚨 THE FIX: Keep the exact structure the server sent us!
         setPlan({
-          ...data, // Keep program, minor, name, year at the root
+          ...data,
           plan: {
             ...data.plan,
-            semesters: hydratedSemesters // Only swap out the semesters array!
+            semesters: hydratedSemesters
           }
         });
         
@@ -100,38 +131,76 @@ const router = useRouter();
     fetchPlanDetails();
   }, [plan_id, year_id]);
 
-  // --- STATUS & NOTE UPDATERS ---
-  const updateCourseStatus = (semIdx, courseIdx, newStatus) => {
-    setPlan(prevPlan => {
-      const updated = { ...prevPlan };
+  // --- DEEP-UPDATE HELPERS ---
+  const updateCourseStatus = useCallback((semIdx, courseIdx, newStatus) => {
+    setPlan(prev => {
+      const updated = JSON.parse(JSON.stringify(prev));
       updated.plan.semesters[semIdx].courses[courseIdx].status = newStatus;
       return updated;
     });
-  };
+  }, []);
 
-  const updateGroupCourseStatus = (semIdx, courseIdx, orIdx, innerIdx, newStatus) => {
-    setPlan(prevPlan => {
-      const updated = { ...prevPlan };
+  const updateGroupCourseStatus = useCallback((semIdx, courseIdx, orIdx, innerIdx, newStatus) => {
+    setPlan(prev => {
+      const updated = JSON.parse(JSON.stringify(prev));
       updated.plan.semesters[semIdx].courses[courseIdx].courses[orIdx][innerIdx].status = newStatus;
       return updated;
     });
-  };
+  }, []);
 
-  const updateCourseNote = (semIdx, courseIdx, newNote) => {
-    setPlan(prevPlan => {
-      const updated = { ...prevPlan };
+  const updateCourseNote = useCallback((semIdx, courseIdx, newNote) => {
+    setPlan(prev => {
+      const updated = JSON.parse(JSON.stringify(prev));
       updated.plan.semesters[semIdx].courses[courseIdx].notes = newNote;
       return updated;
     });
-  };
+  }, []);
 
-  const updateGroupCourseNote = (semIdx, courseIdx, orIdx, innerIdx, newNote) => {
-    setPlan(prevPlan => {
-      const updated = { ...prevPlan };
+  const updateGroupCourseNote = useCallback((semIdx, courseIdx, orIdx, innerIdx, newNote) => {
+    setPlan(prev => {
+      const updated = JSON.parse(JSON.stringify(prev));
       updated.plan.semesters[semIdx].courses[courseIdx].courses[orIdx][innerIdx].notes = newNote;
       return updated;
     });
-  };
+  }, []);
+
+  // --- STATUS MODAL HANDLERS ---
+  const openStatusPicker = useCallback((semIdx, cidx, orIdx, iidx, currentStatus) => {
+    setStatusModalTarget({ semIdx, cidx, orIdx, iidx });
+    setTempStatus(currentStatus || '');
+    setStatusModalVisible(true);
+  }, []);
+
+  const confirmStatus = useCallback(() => {
+    if (!statusModalTarget) return;
+    const { semIdx, cidx, orIdx, iidx } = statusModalTarget;
+    if (orIdx !== undefined && iidx !== undefined) {
+      updateGroupCourseStatus(semIdx, cidx, orIdx, iidx, tempStatus);
+    } else {
+      updateCourseStatus(semIdx, cidx, tempStatus);
+    }
+    setStatusModalVisible(false);
+    setStatusModalTarget(null);
+  }, [statusModalTarget, tempStatus, updateCourseStatus, updateGroupCourseStatus]);
+
+  // --- NOTE MODAL HANDLERS ---
+  const openNoteEditor = useCallback((semIdx, cidx, orIdx, iidx, currentNote) => {
+    setNoteModalTarget({ semIdx, cidx, orIdx, iidx });
+    setTempNote(currentNote || '');
+    setNoteModalVisible(true);
+  }, []);
+
+  const confirmNote = useCallback(() => {
+    if (!noteModalTarget) return;
+    const { semIdx, cidx, orIdx, iidx } = noteModalTarget;
+    if (orIdx !== undefined && iidx !== undefined) {
+      updateGroupCourseNote(semIdx, cidx, orIdx, iidx, tempNote);
+    } else {
+      updateCourseNote(semIdx, cidx, tempNote);
+    }
+    setNoteModalVisible(false);
+    setNoteModalTarget(null);
+  }, [noteModalTarget, tempNote, updateCourseNote, updateGroupCourseNote]);
 
   // --- GENERATE LINK ---
   const createPersonalizedPlan = async () => {
@@ -191,7 +260,7 @@ const router = useRouter();
         </View>
 
         {plan.plan.semesters && plan.plan.semesters.map((semester, semIdx) => {
-          if (semester.term === 'd') return null; // Skip summer divider for editing
+          if (semester.term === 'd') return null;
 
           return (
             <Card key={semIdx} style={styles.semesterCard}>
@@ -209,43 +278,33 @@ const router = useRouter();
                         <View key={`or-${orIdx}`} style={{ width: '100%' }}>
                           <View style={styles.groupInnerBox}>
                             {or_group.map((innerCourse, iidx) => {
-                              const currentStatus = innerCourse.status || 'planned';
+                              const currentStatus = innerCourse.status || '';
                               return (
                                 <View key={`and-${iidx}`} style={{ marginBottom: 10, backgroundColor: getStatusColor(currentStatus), padding: 8, borderRadius: 4, borderWidth: 1, borderColor: '#ccc' }}>
                                   <Text style={[styles.cellText, { fontWeight: 'bold', textDecorationLine: isCompleted(currentStatus) ? 'line-through' : 'none' }]}>
                                     {innerCourse.subject} {innerCourse.number} - {(innerCourse.name || "").replace(/&amp;/g, '&')}
                                   </Text>
-                                  
-                                  <View style={styles.pickerRow}>
-                                    <Text style={styles.pickerLabel}>Status:</Text>
-                                    <View style={styles.pickerWrapper}>
-                                      <Picker 
-                                            selectedValue={currentStatus} 
-                                            onValueChange={(val) => updateGroupCourseStatus(semIdx, cidx, orIdx, iidx, val)} 
-                                            style={{ color: '#333' }}
-                                            dropdownIconColor="#333"
-                                            >
-                                        <Picker.Item label="Planned" value="planned" />
-                                        <Picker.Item label="In Progress" value="in progress" />
-                                        <Picker.Item label="Completed" value="completed" />
-                                        <Picker.Item label="Failed" value="failed" />
-                                        <Picker.Item label="Substituted" value="substituted" />
-                                        <Picker.Item label="Waived" value="waived" />
-                                        <Picker.Item label="Transferred" value="transferred" />
-                                      </Picker>
-                                    </View>
-                                  </View>
 
-                                  {/* THE GROUP NOTE INPUT GOES HERE! */}
-                                  <TextInput
-                                    mode="outlined"
-                                    placeholder="Add note..."
-                                    value={innerCourse.notes}
-                                    onChangeText={(text) => updateGroupCourseNote(semIdx, cidx, orIdx, iidx, text)}
-                                    style={{ height: 35, marginTop: 8, backgroundColor: '#fff', fontSize: 13 }}
-                                    outlineColor="#ccc"
-                                    activeOutlineColor="#002d72"
-                                  />
+                                  <Text style={styles.creditsText}>Credits: {innerCourse.credits || 0}</Text>
+                                  
+                                  <TouchableOpacity
+                                    style={styles.statusButton}
+                                    onPress={() => openStatusPicker(semIdx, cidx, orIdx, iidx, currentStatus)}
+                                  >
+                                    <Text style={styles.statusButtonLabel}>Status: </Text>
+                                    <Text style={styles.statusButtonValue}>{getStatusLabel(currentStatus)}</Text>
+                                    <Text style={styles.statusButtonArrow}> ▼</Text>
+                                  </TouchableOpacity>
+
+                                  <TouchableOpacity
+                                    style={styles.noteButton}
+                                    onPress={() => openNoteEditor(semIdx, cidx, orIdx, iidx, innerCourse.notes)}
+                                  >
+                                    <Text style={styles.noteButtonLabel}>📝 </Text>
+                                    <Text style={styles.noteButtonText} numberOfLines={1}>
+                                      {innerCourse.notes ? innerCourse.notes : 'Add note...'}
+                                    </Text>
+                                  </TouchableOpacity>
                                 </View>
                               );
                             })}
@@ -262,44 +321,35 @@ const router = useRouter();
                     </View>
                   );
                 }
+
                 // STANDARD COURSES & ELECTIVES
-                const currentStatus = course.status || 'planned';
+                const currentStatus = course.status || '';
                 return (
                   <View key={`course-${cidx}`} style={{ borderBottomWidth: 1, borderColor: '#000', backgroundColor: getStatusColor(currentStatus), padding: 10 }}>
                     <Text style={[styles.cellText, { fontWeight: 'bold', textDecorationLine: isCompleted(currentStatus) ? 'line-through' : 'none' }]}>
                       {course.subject === 'Elective' ? "Elective" : `${course.subject} ${course.number}`} - {(course.name || "").replace(/&amp;/g, '&')}
                     </Text>
-                    
-                    <View style={styles.pickerRow}>
-                      <Text style={styles.pickerLabel}>Status:</Text>
-                      <View style={styles.pickerWrapper}>
-                        <Picker 
-                                selectedValue={currentStatus} 
-                                onValueChange={(val) => updateCourseStatus(semIdx, cidx, val)} 
-                                style={{ color: '#333' }}
-                                dropdownIconColor="#333"
-                                >
-                          <Picker.Item label="Planned" value="planned" />
-                          <Picker.Item label="In Progress" value="in progress" />
-                          <Picker.Item label="Completed" value="completed" />
-                          <Picker.Item label="Failed" value="failed" />
-                          <Picker.Item label="Substituted" value="substituted" />
-                          <Picker.Item label="Waived" value="waived" />
-                          <Picker.Item label="Transferred" value="transferred" />
-                        </Picker>
-                      </View>
-                    </View>
 
-                    {/* THE STANDARD NOTE INPUT GOES HERE! */}
-                    <TextInput
-                      mode="outlined"
-                      placeholder="Add note..."
-                      value={course.notes}
-                      onChangeText={(text) => updateCourseNote(semIdx, cidx, text)}
-                      style={{ height: 35, marginTop: 8, backgroundColor: '#fff', fontSize: 13 }}
-                      outlineColor="#ccc"
-                      activeOutlineColor="#002d72"
-                    />
+                    <Text style={styles.creditsText}>Credits: {course.credits || 0}</Text>
+                    
+                    <TouchableOpacity
+                      style={styles.statusButton}
+                      onPress={() => openStatusPicker(semIdx, cidx, undefined, undefined, currentStatus)}
+                    >
+                      <Text style={styles.statusButtonLabel}>Status: </Text>
+                      <Text style={styles.statusButtonValue}>{getStatusLabel(currentStatus)}</Text>
+                      <Text style={styles.statusButtonArrow}> ▼</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.noteButton}
+                      onPress={() => openNoteEditor(semIdx, cidx, undefined, undefined, course.notes)}
+                    >
+                      <Text style={styles.noteButtonLabel}>📝 </Text>
+                      <Text style={styles.noteButtonText} numberOfLines={1}>
+                        {course.notes ? course.notes : 'Add note...'}
+                      </Text>
+                    </TouchableOpacity>
                   </View>
                 );
               })}
@@ -307,6 +357,70 @@ const router = useRouter();
           );
         })}
       </ScrollView>
+
+      {/* SINGLE SHARED STATUS PICKER MODAL — 1 Picker instead of 40+ */}
+      <Modal visible={statusModalVisible} animationType="fade" transparent={true}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalBox}>
+            <Text variant="titleLarge" style={{ fontWeight: 'bold', marginBottom: 10, color: '#333' }}>Select Status</Text>
+            <View style={styles.modalPickerWrapper}>
+              <Picker
+                selectedValue={tempStatus}
+                onValueChange={(val) => setTempStatus(val)}
+                style={{ color: '#333' }}
+                dropdownIconColor="#333"
+              >
+                <Picker.Item label="None" value="" />
+                <Picker.Item label="Planned" value="planned" />
+                <Picker.Item label="In Progress" value="in progress" />
+                <Picker.Item label="Completed" value="completed" />
+                <Picker.Item label="Failed" value="failed" />
+                <Picker.Item label="Substituted" value="substituted" />
+                <Picker.Item label="Waived" value="waived" />
+                <Picker.Item label="Transferred" value="transferred" />
+              </Picker>
+            </View>
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 15, gap: 10 }}>
+              <Button textColor="#666" onPress={() => setStatusModalVisible(false)}>Cancel</Button>
+              <Button mode="contained" buttonColor="#002d72" onPress={confirmStatus}>Done</Button>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* NOTE EDITOR MODAL — full text area for long notes */}
+      <Modal visible={noteModalVisible} animationType="slide" transparent={true}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalBox, { maxHeight: '80%' }]}>
+            <Text variant="titleLarge" style={{ fontWeight: 'bold', marginBottom: 10, color: '#333' }}>Edit Note</Text>
+            <TextInput
+              mode="outlined"
+              placeholder="Write your notes here..."
+              value={tempNote}
+              onChangeText={setTempNote}
+              multiline={true}
+              numberOfLines={8}
+              style={{ backgroundColor: '#fff', fontSize: 14, minHeight: 180, textAlignVertical: 'top' }}
+              outlineColor="#ccc"
+              activeOutlineColor="#002d72"
+            />
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 15 }}>
+              <Button 
+                textColor="#A5093E" 
+                onPress={() => {
+                  setTempNote('');
+                }}
+              >
+                Clear
+              </Button>
+              <View style={{ flexDirection: 'row', gap: 10 }}>
+                <Button textColor="#666" onPress={() => setNoteModalVisible(false)}>Cancel</Button>
+                <Button mode="contained" buttonColor="#002d72" onPress={confirmNote}>Save</Button>
+              </View>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* SUCCESS MODAL */}
       <Modal visible={linkModalVisible} animationType="fade" transparent={true}>
@@ -349,10 +463,46 @@ const styles = StyleSheet.create({
   tableHeader: { padding: 8, borderBottomWidth: 1, borderColor: '#000', alignItems: 'center' },
   tableHeaderText: { fontWeight: 'bold', fontFamily: 'serif', fontSize: 16, color: '#333' },
   cellText: { fontFamily: 'serif', fontSize: 14, color: '#333', marginBottom: 5 },
-  pickerRow: { flexDirection: 'row', alignItems: 'center', marginTop: 5 },
-  pickerLabel: { fontSize: 13, fontWeight: 'bold', marginRight: 10, color: '#333' },
-  pickerWrapper: { flex: 1, borderWidth: 1, borderColor: '#666', borderRadius: 4, backgroundColor: '#fff', height: 40, justifyContent: 'center' },
   groupContainer: { padding: 10, borderBottomWidth: 1, borderColor: '#000', backgroundColor: '#fafafa' },
   groupInnerBox: { backgroundColor: '#fff', padding: 8, borderWidth: 1, borderColor: '#666' },
-  orDivider: { flexDirection: 'row', alignItems: 'center', my: 10, paddingVertical: 8 }
+  orDivider: { flexDirection: 'row', alignItems: 'center', my: 10, paddingVertical: 8 },
+  
+  // Credits text
+  creditsText: { fontSize: 13, color: '#555', marginTop: 2, marginBottom: 2 },
+
+  // Status button (lightweight replacement for inline Picker)
+  statusButton: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    marginTop: 5, 
+    paddingVertical: 8, 
+    paddingHorizontal: 12, 
+    borderWidth: 1, 
+    borderColor: '#666', 
+    borderRadius: 4, 
+    backgroundColor: '#fff' 
+  },
+  statusButtonLabel: { fontSize: 13, fontWeight: 'bold', color: '#333' },
+  statusButtonValue: { fontSize: 13, color: '#002d72', fontWeight: '600' },
+  statusButtonArrow: { fontSize: 11, color: '#666' },
+
+  // Note button (tap to open full editor modal)
+  noteButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: '#ccc',
+    borderRadius: 4,
+    backgroundColor: '#fff',
+  },
+  noteButtonLabel: { fontSize: 13 },
+  noteButtonText: { fontSize: 13, color: '#666', flex: 1, fontStyle: 'italic' },
+
+  // Status picker modal
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', paddingHorizontal: 20 },
+  modalBox: { backgroundColor: '#fff', padding: 20, borderRadius: 8, elevation: 5 },
+  modalPickerWrapper: { borderWidth: 1, borderColor: '#ccc', borderRadius: 4, backgroundColor: '#f9f9f9' },
 });
