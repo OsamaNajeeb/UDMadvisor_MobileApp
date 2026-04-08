@@ -1,12 +1,16 @@
 import React, { useState, useEffect, useContext, useCallback, useMemo } from 'react';
 import { View, StyleSheet, Alert, Modal, FlatList } from 'react-native';
-// --- NEW: Added Searchbar to our imports ---
 import { Text, Button, Appbar, Checkbox, Divider, IconButton, ActivityIndicator, Searchbar } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import { Picker } from '@react-native-picker/picker';
 import { CourseContext } from '../store/CourseContext'; 
 import FeedbackButton from '../components/FeedbackButton';
+
+// Imports for data
 import subjectsData from '../store/full_courses.json';
+import courseCodesData from '../store/unique_course_codes.json'; 
+// --- NEW: Import your unique attributes JSON ---
+import attributeCodesData from '../store/unique_section_attribute_codes.json'; 
 
 const API_BASE_URL = "https://udmadvisor-server.onrender.com";
 // const API_BASE_URL = "http://10.0.53.168:5000";
@@ -23,47 +27,101 @@ const SubjectCheckbox = React.memo(({ code, name, isChecked, onToggle }) => {
   );
 });
 
+const CourseCodeCheckbox = React.memo(({ code, isChecked, onToggle }) => {
+  return (
+    <Checkbox.Item
+      label={`Course Number: ${code}`}
+      status={isChecked ? 'checked' : 'unchecked'}
+      onPress={() => onToggle(code)}
+      color="#A5093E"
+      labelStyle={{ fontSize: 14 }}
+    />
+  );
+});
+
+// --- NEW: Checkbox component for Attributes ---
+const AttributeCheckbox = React.memo(({ code, description, isChecked, onToggle }) => {
+  return (
+    <Checkbox.Item
+      label={`${code}: ${description}`}
+      status={isChecked ? 'checked' : 'unchecked'}
+      onPress={() => onToggle(code)}
+      color="#A5093E"
+      labelStyle={{ fontSize: 14 }}
+    />
+  );
+});
+
 export default function SelectTerm() {
   const router = useRouter();
   const { setGlobalCourses, setSelectedCourses } = useContext(CourseContext);
 
   const [terms, setTerms] = useState([]);
   const [selectedTerm, setSelectedTerm] = useState();
+  
   const [selectedSubjects, setSelectedSubjects] = useState([]);
   const [subjectModalVisible, setSubjectModalVisible] = useState(false);
-  
-  // --- NEW: State to track what the user is typing in the search bar ---
   const [subjectSearchQuery, setSubjectSearchQuery] = useState('');
+
+  const [selectedCourseCodes, setSelectedCourseCodes] = useState([]);
+  const [courseCodeModalVisible, setCourseCodeModalVisible] = useState(false);
+  const [courseCodeSearchQuery, setCourseCodeSearchQuery] = useState('');
+
+  // --- NEW: State for Attributes ---
+  const [selectedAttributes, setSelectedAttributes] = useState([]);
+  const [attributeModalVisible, setAttributeModalVisible] = useState(false);
+  const [attributeSearchQuery, setAttributeSearchQuery] = useState('');
   
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
+    let isMounted = true; // <-- Flag to track if screen is open
+
     const fetchTerms = async () => {
       try {
         const response = await fetch(`${API_BASE_URL}/api/fetch_all_terms`);
         if (!response.ok) throw new Error('Network response was not ok');
         const data = await response.json();
-        setTerms(data);
+        
+        if (isMounted) { // <-- Only update state if they are still on the screen!
+          setTerms(data);
+        }
       } catch (error) {
-        console.error("Error fetching terms:", error);
-        Alert.alert("Connection Error", "Could not fetch terms from the server.");
+        if (isMounted) {
+          console.error("Error fetching terms:", error);
+          Alert.alert("Connection Error", "Could not fetch terms from the server.");
+        }
       }
     };
     fetchTerms();
+
+    return () => {
+      isMounted = false; // <-- Kills the updates if the user hits the Back button
+    };
   }, []);
 
   const toggleSubject = useCallback((code) => {
     setSelectedSubjects((prev) => {
-      if (prev.includes(code)) {
-        return prev.filter(item => item !== code); 
-      } else {
-        return [...prev, code]; 
-      }
+      if (prev.includes(code)) return prev.filter(item => item !== code); 
+      return [...prev, code]; 
     });
   }, []);
 
-  // --- NEW: Live Search Engine for the Checkboxes ---
-  // This instantly filters the list if they type "Math" or "MTH"
+  const toggleCourseCode = useCallback((code) => {
+    setSelectedCourseCodes((prev) => {
+      if (prev.includes(code)) return prev.filter(item => item !== code); 
+      return [...prev, code]; 
+    });
+  }, []);
+
+  // --- NEW: Toggle function for Attributes ---
+  const toggleAttribute = useCallback((code) => {
+    setSelectedAttributes((prev) => {
+      if (prev.includes(code)) return prev.filter(item => item !== code); 
+      return [...prev, code]; 
+    });
+  }, []);
+
   const filteredSubjects = useMemo(() => {
     if (!subjectSearchQuery.trim()) return Object.entries(subjectsData);
     
@@ -73,10 +131,40 @@ export default function SelectTerm() {
     });
   }, [subjectSearchQuery]);
 
-  // Helper to cleanly close modal and wipe the search bar so it's fresh next time
+  const filteredCourseCodes = useMemo(() => {
+    if (!courseCodeSearchQuery.trim()) return courseCodesData.courseCodes;
+    
+    return courseCodesData.courseCodes.filter((code) => {
+      return code.includes(courseCodeSearchQuery);
+    });
+  }, [courseCodeSearchQuery]);
+
+  // --- NEW: Live Search Engine for the Attributes ---
+  const filteredAttributes = useMemo(() => {
+    if (!attributeSearchQuery.trim()) return attributeCodesData.sectionAttributeCodes;
+    
+    const query = attributeSearchQuery.toLowerCase();
+    return attributeCodesData.sectionAttributeCodes.filter((attr) => {
+      // Allow searching by either the acronym or the description
+      return attr.code.toLowerCase().includes(query) || 
+             attr.description.toLowerCase().includes(query);
+    });
+  }, [attributeSearchQuery]);
+
   const closeSubjectModal = () => {
     setSubjectModalVisible(false);
     setSubjectSearchQuery(''); 
+  };
+
+  const closeCourseCodeModal = () => {
+    setCourseCodeModalVisible(false);
+    setCourseCodeSearchQuery(''); 
+  };
+
+  // --- NEW: Close helper for Attribute modal ---
+  const closeAttributeModal = () => {
+    setAttributeModalVisible(false);
+    setAttributeSearchQuery(''); 
   };
 
   const handleSelectTerm = async () => {
@@ -98,18 +186,48 @@ export default function SelectTerm() {
       const apiUrl = `${API_BASE_URL}/api/fetch_courses?term_name=${encodeURIComponent(termObj.description)}&term_code=${termObj.code}&subject=${subjectsString}&refresh_course_data=false`;
       
       const response = await fetch(apiUrl);
-      const data = await response.json();
+      
+      // Read the raw text first to safely handle non-JSON responses (e.g. server HTML errors)
+      const rawText = await response.text();
+      
+      let data;
+      try {
+        data = JSON.parse(rawText);
+      } catch (e) {
+        setLoading(false);
+        throw new Error("The server returned an invalid response. It may be starting up — please try again in a moment.");
+      }
 
       if (!response.ok) {
         setLoading(false);
-        throw new Error(data.error || "Failed to fetch");
+        throw new Error(data?.error?.message || data?.error || "Failed to fetch courses.");
+      }
+
+      // Ensure data is an array before iterating
+      if (!Array.isArray(data)) {
+        setLoading(false);
+        throw new Error("Unexpected server response format.");
       }
 
       const groupedCourses = {};
       data.forEach(course => {
-        
+        // Filter by subject
         if (!selectedSubjects.includes(course.subject)) {
           return; 
+        }
+
+        // Filter by Course Code
+        if (selectedCourseCodes.length > 0 && !selectedCourseCodes.includes(course.course_number)) {
+          return;
+        }
+
+        // --- NEW: Filter by Attribute ---
+        if (selectedAttributes.length > 0) {
+          // Check if the course has an attributes array, and if any of its codes match our selected ones
+          const hasMatchingAttribute = course.attributes && course.attributes.some(attr => selectedAttributes.includes(attr.code));
+          if (!hasMatchingAttribute) {
+            return;
+          }
         }
 
         const category = course.course_description || course.subjectDescription || "Other";
@@ -143,7 +261,10 @@ export default function SelectTerm() {
           params: {
             termName: termObj.description,
             termCode: termObj.code,
-            subjectCode: subjectsString 
+            subjectCode: subjectsString,
+            courseCodes: selectedCourseCodes.join(','),
+            // --- NEW: Pass the attribute codes to the viewer ---
+            attributeCodes: selectedAttributes.join(',')
           }
         });
       }, 150);
@@ -191,6 +312,31 @@ export default function SelectTerm() {
         </Button>
 
         <Button 
+          mode="outlined" 
+          onPress={() => setCourseCodeModalVisible(true)}
+          style={styles.multiSelectBtn}
+          textColor={selectedCourseCodes.length > 0 ? "#A5093E" : "#666"}
+          disabled={loading}
+        >
+          {selectedCourseCodes.length > 0 
+            ? `3. Selected ${selectedCourseCodes.length} Course Code(s)` 
+            : '3. Select Course Codes (Optional)'}
+        </Button>
+
+        {/* --- NEW: Button to open Attributes modal --- */}
+        <Button 
+          mode="outlined" 
+          onPress={() => setAttributeModalVisible(true)}
+          style={styles.multiSelectBtn}
+          textColor={selectedAttributes.length > 0 ? "#A5093E" : "#666"}
+          disabled={loading}
+        >
+          {selectedAttributes.length > 0 
+            ? `4. Selected ${selectedAttributes.length} Attribute(s)` 
+            : '4. Select Attributes (Optional)'}
+        </Button>
+
+        <Button 
           mode="contained" 
           onPress={handleSelectTerm} 
           loading={loading}
@@ -204,6 +350,8 @@ export default function SelectTerm() {
           onPress={() => {
             setSelectedTerm(null);
             setSelectedSubjects([]);
+            setSelectedCourseCodes([]); 
+            setSelectedAttributes([]); // --- NEW: Clear attributes too ---
           }} 
           textColor="#A5093E"
           style={{ marginTop: 10 }}
@@ -213,16 +361,14 @@ export default function SelectTerm() {
         </Button>
       </View>
 
+      {/* --- SUBJECT MODAL --- */}
       <Modal visible={subjectModalVisible} animationType="slide" transparent={true}>
-        <View style={styles.subjectModalOverlay}>
+        <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            
             <View style={styles.modalHeader}>
               <Text variant="titleLarge" style={{ fontWeight: 'bold', color: '#002d72' }}>Select Subjects</Text>
               <IconButton icon="close" size={24} onPress={closeSubjectModal} />
             </View>
-
-            {/* --- NEW: THE SEARCH BAR --- */}
             <Searchbar
               placeholder="Search subjects (e.g. BIO, Math)..."
               onChangeText={setSubjectSearchQuery}
@@ -232,16 +378,14 @@ export default function SelectTerm() {
               iconColor="#A5093E"
               elevation={0}
             />
-
             <Divider style={{ marginBottom: 10 }} />
-
             <FlatList
-              data={filteredSubjects} // <--- Now uses the filtered list!
+              data={filteredSubjects}
               keyExtractor={([code]) => code}
               initialNumToRender={15}
               maxToRenderPerBatch={10}
               windowSize={5}
-              removeClippedSubviews={true}
+              removeClippedSubviews={false}
               renderItem={({ item }) => {
                 const [code, name] = item;
                 return (
@@ -254,13 +398,64 @@ export default function SelectTerm() {
                 );
               }}
             />
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 15 }}>
+              <Button mode="outlined" textColor="#A5093E" style={{ borderColor: '#A5093E', width: '48%' }} onPress={() => setSelectedSubjects([])}>
+                Clear All
+              </Button>
+              <Button mode="contained" buttonColor="#002d72" style={{ width: '48%' }} onPress={closeSubjectModal}>
+                Done
+              </Button>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* --- COURSE CODE MODAL --- */}
+      <Modal visible={courseCodeModalVisible} animationType="slide" transparent={true}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            
+            <View style={styles.modalHeader}>
+              <Text variant="titleLarge" style={{ fontWeight: 'bold', color: '#002d72' }}>Select Course Codes</Text>
+              <IconButton icon="close" size={24} onPress={closeCourseCodeModal} />
+            </View>
+
+            <Searchbar
+              placeholder="Search code (e.g. 1020, 4000)..."
+              onChangeText={setCourseCodeSearchQuery}
+              value={courseCodeSearchQuery}
+              style={styles.searchBar}
+              inputStyle={{ minHeight: 40 }}
+              iconColor="#A5093E"
+              elevation={0}
+            />
+
+            <Divider style={{ marginBottom: 10 }} />
+
+            <FlatList
+              data={filteredCourseCodes}
+              keyExtractor={(item) => item}
+              initialNumToRender={15}
+              maxToRenderPerBatch={10}
+              windowSize={5}
+              removeClippedSubviews={false}
+              renderItem={({ item }) => {
+                return (
+                  <CourseCodeCheckbox
+                    code={item}
+                    isChecked={selectedCourseCodes.includes(item)}
+                    onToggle={toggleCourseCode}
+                  />
+                );
+              }}
+            />
 
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 15 }}>
               <Button 
                 mode="outlined" 
                 textColor="#A5093E" 
                 style={{ borderColor: '#A5093E', width: '48%' }}
-                onPress={() => setSelectedSubjects([])}
+                onPress={() => setSelectedCourseCodes([])}
               >
                 Clear All
               </Button>
@@ -268,7 +463,7 @@ export default function SelectTerm() {
                 mode="contained" 
                 buttonColor="#002d72" 
                 style={{ width: '48%' }}
-                onPress={closeSubjectModal}
+                onPress={closeCourseCodeModal}
               >
                 Done
               </Button>
@@ -277,6 +472,70 @@ export default function SelectTerm() {
         </View>
       </Modal>
 
+      {/* --- NEW: ATTRIBUTE MODAL --- */}
+      <Modal visible={attributeModalVisible} animationType="slide" transparent={true}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            
+            <View style={styles.modalHeader}>
+              <Text variant="titleLarge" style={{ fontWeight: 'bold', color: '#002d72' }}>Select Attributes</Text>
+              <IconButton icon="close" size={24} onPress={closeAttributeModal} />
+            </View>
+
+            <Searchbar
+              placeholder="Search attributes (e.g. Honors, Core)..."
+              onChangeText={setAttributeSearchQuery}
+              value={attributeSearchQuery}
+              style={styles.searchBar}
+              inputStyle={{ minHeight: 40 }}
+              iconColor="#A5093E"
+              elevation={0}
+            />
+
+            <Divider style={{ marginBottom: 10 }} />
+
+            <FlatList
+              data={filteredAttributes}
+              keyExtractor={(item) => item.code}
+              initialNumToRender={15}
+              maxToRenderPerBatch={10}
+              windowSize={5}
+              removeClippedSubviews={false}
+              renderItem={({ item }) => {
+                return (
+                  <AttributeCheckbox
+                    code={item.code}
+                    description={item.description}
+                    isChecked={selectedAttributes.includes(item.code)}
+                    onToggle={toggleAttribute}
+                  />
+                );
+              }}
+            />
+
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 15 }}>
+              <Button 
+                mode="outlined" 
+                textColor="#A5093E" 
+                style={{ borderColor: '#A5093E', width: '48%' }}
+                onPress={() => setSelectedAttributes([])}
+              >
+                Clear All
+              </Button>
+              <Button 
+                mode="contained" 
+                buttonColor="#002d72" 
+                style={{ width: '48%' }}
+                onPress={closeAttributeModal}
+              >
+                Done
+              </Button>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* LOADING OVERLAY */}
       <Modal visible={loading} transparent={true} animationType="fade">
         <View style={styles.loadingOverlay}>
           <View style={styles.loadingBox}>
@@ -300,12 +559,11 @@ const styles = StyleSheet.create({
   multiSelectBtn: { backgroundColor: '#fff', borderColor: '#ccc', borderWidth: 1, paddingVertical: 5, marginBottom: 20 },
   button: { backgroundColor: '#002d72', paddingVertical: 5 },
   
-  // Subject Modal Styles
-  subjectModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  // Shared Modal Styles
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
   modalContent: { backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, height: '80%', padding: 20 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 },
   
-  // --- NEW: Searchbar Style ---
   searchBar: {
     backgroundColor: '#f0f0f0',
     borderRadius: 8,
@@ -314,7 +572,6 @@ const styles = StyleSheet.create({
     borderColor: '#e0e0e0'
   },
 
-  // Loading Overlay Styles
   loadingOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.6)', 

@@ -205,25 +205,15 @@ const CourseCard = React.memo(({ course, isSelected, onToggle, onPrereqPress, on
             })()}
           </Text>
         </View>
-        {/* --- 🚨 THE NEW CROSS-LIST LOCATION 🚨 --- */}
-        {course.cross_list ? (
-          <View style={{ marginTop: 8, backgroundColor: '#fef08a', padding: 8, borderRadius: 6 }}>
-            <Text style={{ fontSize: 13, color: '#854d0e', fontWeight: 'bold', flexWrap: 'wrap' }}>
-             {typeof course.cross_list === 'string' ? course.cross_list : "Cross-Listed"}
+        {/* --- COMPACT PREREQ & CROSS-LIST STATUS --- */}
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8, borderTopWidth: 1, borderTopColor: '#eee', paddingTop: 5 }}>
+            <Text style={{ fontSize: 13, color: '#666' }}>
+              🔗 Cross-Listed: <Text style={{ fontWeight: 'bold', color: course.cross_list ? '#A5093E' : '#666' }}>{course.cross_list ? 'Yes' : 'No'}</Text>
+            </Text>
+            <Text style={{ fontSize: 13, color: '#666' }}>
+              ⚠️ Prerequisite: <Text style={{ fontWeight: 'bold', color: course.prerequisites ? '#A5093E' : '#666' }}>{course.prerequisites ? 'Yes' : 'No'}</Text>
             </Text>
           </View>
-        ) : null}   
-        {/* --- 🚨 THE NEW CLICKABLE LINK 🚨 --- */}
-        {course.prerequisites ? (
-          <View style={{ marginTop: 8, paddingTop: 5 }}>
-            <Text 
-              style={{ fontSize: 14, color: '#0284c7', fontWeight: 'bold', textDecorationLine: 'underline' }}
-              onPress={() => onPrereqPress(course.prerequisites)}
-            >
-            Prerequisite Detected (Tap to view)
-            </Text>
-          </View>
-        ) : null}
       </Card.Content>
 
       <Card.Actions>
@@ -322,9 +312,12 @@ const handleScrollEnd = () => {
 
   const { globalCourses, setGlobalCourses, selectedCourses, toggleCourse } = useContext(CourseContext);
   // Catch the term info we passed from the previous screen
-  const { termName, termCode, subjectCode } = useLocalSearchParams();
+  const { termName, termCode, subjectCode, courseCodes, attributeCodes } = useLocalSearchParams();
   const selectedSubjectsArray = subjectCode ? subjectCode.split(',') : [];
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const selectedCourseCodesArray = courseCodes ? courseCodes.split(',') : []; 
+  const selectedAttributesArray = attributeCodes ? attributeCodes.split(',').filter(Boolean) : [];
+  
+  const [isRefreshing, setIsRefreshing] = useState(false)
 
 
   const [scheduleModalVisible, setScheduleModalVisible] = useState(false); // State for our new modal
@@ -430,11 +423,26 @@ const handleRefresh = async () => {
         throw new Error(serverError);
       }
 
+      // Ensure data is an array before iterating
+      if (!Array.isArray(data)) {
+        throw new Error("Unexpected server response format.");
+      }
+
       const groupedCourses = {};
       data.forEach(course => {
         
         if (selectedSubjectsArray.length > 0 && !selectedSubjectsArray.includes(course.subject)) {
           return; 
+        }
+
+        if (selectedCourseCodesArray.length > 0 && !selectedCourseCodesArray.includes(course.course_number)) {
+          return;
+        }
+
+        // Filter by Attribute (matches select_term.js logic)
+        if (selectedAttributesArray.length > 0) {
+          const hasMatchingAttribute = course.attributes && course.attributes.some(attr => selectedAttributesArray.includes(attr.code));
+          if (!hasMatchingAttribute) return;
         }
 
         const category = course.course_description || course.subjectDescription || "Other";
@@ -951,7 +959,8 @@ const applyFilters = () => {
                       : "None"}
                   </Text>
                   
-{/* ENROLLMENT LINE FOR THE POP-UP */}
+                  {/* ENROLLMENT LINE FOR THE POP-UP */}
+                  
                   <Text style={{ color: '#555', marginBottom: 8, fontSize: 15 }}>
                     {(() => {
                       const max = selectedEventCourse.maximumEnrollment || selectedEventCourse.maximum_enrollment || 0;
@@ -969,7 +978,13 @@ const applyFilters = () => {
                       return <><Text style={{ fontWeight: 'bold' }}>Enrollment:</Text> {enrl} / {max} <Text style={{ color: '#166534', fontWeight: 'bold' }}> ({seats} Available)</Text></>;
                     })()}
                   </Text>
-
+                  {selectedEventCourse.cross_list ? (
+                    <View>
+                      <Text style={{fontWeight: 'bold', flexWrap: 'wrap' }}>
+                        {typeof selectedEventCourse.cross_list === 'string' ? selectedEventCourse.cross_list : "Cross-Listed"}
+                      </Text>
+                    </View>
+                  ) : null}
                   {/* --- 🚨 NEW: MOVED PREREQUISITES TO DETAIL MODAL 🚨 --- */}
                   {selectedEventCourse.prerequisites ? (
                     <View style={{ marginTop: 15, padding: 12, backgroundColor: '#fdf2f8', borderRadius: 8, borderWidth: 1, borderColor: '#fce7f3' }}>
