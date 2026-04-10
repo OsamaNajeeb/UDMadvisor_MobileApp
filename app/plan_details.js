@@ -54,6 +54,10 @@ export default function PlanDetails() {
   const [isLinking, setIsLinking] = useState(false);
 
   useEffect(() => {
+    // Reset state on every entry so back/forth navigation starts clean
+    setPlan(null);
+    setLoading(true);
+
     const fetchPlanDetails = async () => {
       if (!plan_id || !year_id) {
         Alert.alert("Error", "Missing plan details.");
@@ -63,9 +67,16 @@ export default function PlanDetails() {
 
       try {
         const response = await fetch(`${API_BASE_URL}/api/get_plan?plan_id=${plan_id}&year_id=${year_id}`);
-        if (!response.ok) throw new Error("Failed to fetch plan details");
         
-        const data = await response.json();
+        const rawText = await response.text();
+        let data;
+        try {
+          data = JSON.parse(rawText);
+        } catch (e) {
+          throw new Error("Server returned an invalid response. It may be starting up — try again in a moment.");
+        }
+        
+        if (!response.ok) throw new Error(data?.message || "Failed to fetch plan details");
         
         setPlan({
           semesters: data.plan.semesters,
@@ -222,13 +233,15 @@ export default function PlanDetails() {
             >
               Export to PDF
             </Button>
-            <Button 
-              mode="outlined" 
-              textColor="#002d72" 
+            <Button
+              mode="outlined"
+              textColor="#002d72"
               style={{ borderColor: '#002d72' }}
-              onPress={createPersonalizedPlan}
-              loading={isLinking}
-              disabled={isLinking}
+              onPress={() => router.push({
+                pathname: '/per_plan',
+                // 🚨 SAFE METHOD: Just pass the tiny IDs!
+                params: { plan_id: plan_id, year_id: year_id } 
+              })}
             >
               Personalize Plan
             </Button>

@@ -1,0 +1,257 @@
+{
+  "totalUniqueSectionAttributeCodes": 63,
+  "sectionAttributeCodes": [
+    {
+      "code": "AFRI",
+      "description": "AAS-African-American Studies"
+    },
+    {
+      "code": "BUIL",
+      "description": "ReBUILD section"
+    },
+    {
+      "code": "CEL",
+      "description": "Community Engaged Learning"
+    },
+    {
+      "code": "CELO",
+      "description": "Community Engaged Learning Opt"
+    },
+    {
+      "code": "EDIV",
+      "description": "Diverse Literatures"
+    },
+    {
+      "code": "ELIT",
+      "description": "Literature written before 1700"
+    },
+    {
+      "code": "FULL",
+      "description": "Full Time Course"
+    },
+    {
+      "code": "HONR",
+      "description": "Honors Course"
+    },
+    {
+      "code": "IPLI",
+      "description": "Law Intellectual Property Crse"
+    },
+    {
+      "code": "IT1",
+      "description": "Core IT1 RWR Across University"
+    },
+    {
+      "code": "IT2",
+      "description": "Core IT2 Critical Thinking"
+    },
+    {
+      "code": "IT3",
+      "description": "Core IT3 Cultural Diversity"
+    },
+    {
+      "code": "IT4",
+      "description": "Core IT4 Human Difference"
+    },
+    {
+      "code": "IT5",
+      "description": "Core IT5 Personal Spirit Deve"
+    },
+    {
+      "code": "IT6",
+      "description": "Core IT6 Spirituality Soc Just"
+    },
+    {
+      "code": "JDJD",
+      "description": "Law Dual JD Requirement"
+    },
+    {
+      "code": "KAA1",
+      "description": "Core A1 Oral Communication"
+    },
+    {
+      "code": "KAA2",
+      "description": "Core A2 Written Communication"
+    },
+    {
+      "code": "KAB1",
+      "description": "Core B1 Quant/Symbol Reasoning"
+    },
+    {
+      "code": "KAB2",
+      "description": "Core B2 Stats/Probab Reasoning"
+    },
+    {
+      "code": "KAC1",
+      "description": "Core C1 Physical Science"
+    },
+    {
+      "code": "KAC2",
+      "description": "Core C2 Social Science"
+    },
+    {
+      "code": "KAD1",
+      "description": "Core D1 Philosophy 1000"
+    },
+    {
+      "code": "KAD2",
+      "description": "Core D2 2000-level RELS"
+    },
+    {
+      "code": "KAD3",
+      "description": "Core D3 Add&#39;l PHL/RELS electiv"
+    },
+    {
+      "code": "KAE1",
+      "description": "Core E1 Historical Experiences"
+    },
+    {
+      "code": "KAE2",
+      "description": "Core E2 Literary Experiences"
+    },
+    {
+      "code": "KAE3",
+      "description": "Core E3 Aesthetic Experiences"
+    },
+    {
+      "code": "KAF1",
+      "description": "Core F1 Ethics"
+    },
+    {
+      "code": "LCLR",
+      "description": "Law Clinic Requirement"
+    },
+    {
+      "code": "LCT",
+      "description": "Language &amp; Cultural Training"
+    },
+    {
+      "code": "LFCR",
+      "description": "Law Foundational Course Req"
+    },
+    {
+      "code": "LFPR",
+      "description": "Law Firm Program Requirement"
+    },
+    {
+      "code": "LIGR",
+      "description": "Law International/Global Req"
+    },
+    {
+      "code": "LLLB",
+      "description": "Law JD/LLB Required Course"
+    },
+    {
+      "code": "LTCR",
+      "description": "Law Transnational Course Req"
+    },
+    {
+      "code": "LULW",
+      "description": "Law Upper Level Writing Req"
+    },
+    {
+      "code": "NDEC",
+      "description": "Nursing-Degree Completion"
+    },
+    {
+      "code": "NHON",
+      "description": "Nursing Honors Program"
+    },
+    {
+      "code": "NOCR",
+      "description": "Course not for degree credit"
+    },
+    {
+      "code": "NPRE",
+      "description": "Nursing-Pre-licensure"
+    },
+    {
+      "code": "NSDO",
+      "description": "Nursing-Second Degree Option"
+    },
+    {
+      "code": "NURP",
+      "description": "Nursing Part-Time Only"
+    },
+    {
+      "code": "OB1",
+      "description": "Old Core Objective 1"
+    },
+    {
+      "code": "OB2A",
+      "description": "Old Core Objective 2A"
+    },
+    {
+      "code": "OB2B",
+      "description": "Old Core Objective 2B"
+    },
+    {
+      "code": "OB3A",
+      "description": "Old Core Objective 3A"
+    },
+    {
+      "code": "OB3B",
+      "description": "Old Core Objective 3B"
+    },
+    {
+      "code": "OB3C",
+      "description": "Old Core Objective 3C"
+    },
+    {
+      "code": "OB4A",
+      "description": "Old Core Objective 4A"
+    },
+    {
+      "code": "OB4B",
+      "description": "Old Core Objective 4B"
+    },
+    {
+      "code": "OB4C",
+      "description": "Old Core Objective 4C"
+    },
+    {
+      "code": "OB5A",
+      "description": "Old Core Objective 5A"
+    },
+    {
+      "code": "OB5B",
+      "description": "Old Core Objective 5B"
+    },
+    {
+      "code": "OB5C",
+      "description": "Old Core Objective 5C"
+    },
+    {
+      "code": "OB5D",
+      "description": "Old Core Objective 5D"
+    },
+    {
+      "code": "OB5E",
+      "description": "Old Core Objective 5E-LAE only"
+    },
+    {
+      "code": "OB6A",
+      "description": "Old Core Objective 6A"
+    },
+    {
+      "code": "OB6B",
+      "description": "Old Core Objective 6B"
+    },
+    {
+      "code": "SEN",
+      "description": "Senior Seminar/Capstone Course"
+    },
+    {
+      "code": "SERV",
+      "description": "Service Learning Course"
+    },
+    {
+      "code": "SERX",
+      "description": "Service Learning Optional"
+    },
+    {
+      "code": "WOME",
+      "description": "WGS-Women&#39;s and Gender Studies"
+    }
+  ]
+}

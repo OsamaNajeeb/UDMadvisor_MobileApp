@@ -24,7 +24,7 @@ const DASHBOARD_OPTIONS = [
   {
     name: 'Scheduling Chatbot',
     description: 'Chat with our AI Assistant for help.',
-    route: '/chatbot',
+    route: '/chatbot_setup',
     icon: 'robot',
     buttonText: 'Chat Now'
   },
