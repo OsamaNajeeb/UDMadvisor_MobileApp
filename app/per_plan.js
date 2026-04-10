@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, ScrollView, StyleSheet, ActivityIndicator, Alert, Modal, TouchableOpacity } from 'react-native';
+import { View, ScrollView, StyleSheet, ActivityIndicator, Alert, Modal, TouchableOpacity, Share } from 'react-native';
 import { Text, Appbar, Button, Card, Divider, TextInput } from 'react-native-paper';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Picker } from '@react-native-picker/picker';
-import * as Clipboard from 'expo-clipboard';
 import FeedbackButton from '../components/FeedbackButton';
 
 const API_BASE_URL = "https://scraper2-nzef.onrender.com";
@@ -58,9 +57,7 @@ export default function PersonalizePlan() {
   const [plan, setPlan] = useState(null);
   const [loading, setLoading] = useState(true);
   
-  // Link Generation State
-  const [linkModalVisible, setLinkModalVisible] = useState(false);
-  const [generatedLink, setGeneratedLink] = useState('');
+  // Share loading state
   const [isLinking, setIsLinking] = useState(false);
 
   // Single shared status picker modal (instead of 40+ inline Pickers)
@@ -202,25 +199,53 @@ export default function PersonalizePlan() {
     setNoteModalTarget(null);
   }, [noteModalTarget, tempNote, updateCourseNote, updateGroupCourseNote]);
 
-  // --- GENERATE LINK ---
-  const createPersonalizedPlan = async () => {
+  // --- SHARE PLAN ---
+  const sharePlan = async () => {
     try {
       setIsLinking(true);
-      const response = await fetch(`${API_BASE_URL}/api/create_plan_link`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ plan: plan }),
+
+      // Build a nicely formatted text version of the plan
+      let shareText = `📋 ${plan.program || 'Degree Plan'}\n`;
+      if (plan.minor) shareText += `Minor: ${plan.minor}\n`;
+      shareText += `\n`;
+
+      const semesters = plan.plan?.semesters || [];
+      semesters.forEach(sem => {
+        if (sem.term === 'd') return;
+        shareText += `━━━ ${sem.level} - ${sem.term} ━━━\n`;
+
+        sem.courses.forEach(course => {
+          if (course.type === 'group') {
+            course.courses.forEach((or_group, orIdx) => {
+              or_group.forEach(inner => {
+                const status = inner.status ? ` [${getStatusLabel(inner.status)}]` : '';
+                shareText += `  ${inner.subject} ${inner.number} - ${(inner.name || '').replace(/&amp;/g, '&')} (${inner.credits || 0} cr)${status}\n`;
+                if (inner.notes) shareText += `    📝 ${inner.notes}\n`;
+              });
+              if (orIdx < course.courses.length - 1) shareText += `    — OR —\n`;
+            });
+          } else {
+            const code = course.subject === 'Elective' ? 'Elective' : `${course.subject} ${course.number}`;
+            const status = course.status ? ` [${getStatusLabel(course.status)}]` : '';
+            shareText += `  ${code} - ${(course.name || '').replace(/&amp;/g, '&')} (${course.credits || 0} cr)${status}\n`;
+            if (course.notes) shareText += `    📝 ${course.notes}\n`;
+          }
+        });
+        shareText += `\n`;
       });
 
-      if (!response.ok) throw new Error("Failed to create personalized plan");
-      const data = await response.json();
+      shareText += `Shared from UDM Advisor`;
 
-      const link = `https://course-scheduler-scraper.vercel.app/view-personalized-plan/${data.plan_id}`;
-      setGeneratedLink(link);
-      setLinkModalVisible(true);
+      await Share.share({
+        message: shareText,
+        title: `${plan.program || 'Degree Plan'} - UDM Advisor`,
+      });
+
     } catch (err) {
-      console.error(err);
-      Alert.alert("Error", "Could not create the personalized plan link.");
+      if (err.message !== 'User did not share') {
+        console.error(err);
+        Alert.alert("Error", "Could not share the plan.");
+      }
     } finally {
       setIsLinking(false);
     }
@@ -250,12 +275,12 @@ export default function PersonalizePlan() {
           <Button 
             mode="contained" 
             buttonColor="#002d72" 
-            icon="link" 
+            icon="share-variant" 
             style={{ marginTop: 15 }} 
-            onPress={createPersonalizedPlan} 
+            onPress={sharePlan} 
             loading={isLinking}
           >
-            Create Shareable Link
+            Share Plan
           </Button>
         </View>
 
@@ -285,7 +310,7 @@ export default function PersonalizePlan() {
                                     {innerCourse.subject} {innerCourse.number} - {(innerCourse.name || "").replace(/&amp;/g, '&')}
                                   </Text>
 
-                                  <Text style={styles.creditsText}>Credits: {innerCourse.credits || 0}</Text>
+                                  <Text style={styles.creditsText}>⭐ Credits: {innerCourse.credits || 0}</Text>
                                   
                                   <TouchableOpacity
                                     style={styles.statusButton}
@@ -330,7 +355,7 @@ export default function PersonalizePlan() {
                       {course.subject === 'Elective' ? "Elective" : `${course.subject} ${course.number}`} - {(course.name || "").replace(/&amp;/g, '&')}
                     </Text>
 
-                    <Text style={styles.creditsText}>Credits: {course.credits || 0}</Text>
+                    <Text style={styles.creditsText}>⭐ Credits: {course.credits || 0}</Text>
                     
                     <TouchableOpacity
                       style={styles.statusButton}
@@ -417,32 +442,6 @@ export default function PersonalizePlan() {
                 <Button textColor="#666" onPress={() => setNoteModalVisible(false)}>Cancel</Button>
                 <Button mode="contained" buttonColor="#002d72" onPress={confirmNote}>Save</Button>
               </View>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* SUCCESS MODAL */}
-      <Modal visible={linkModalVisible} animationType="fade" transparent={true}>
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 20 }}>
-          <View style={{ backgroundColor: '#fff', padding: 20, borderRadius: 8, elevation: 5 }}>
-            <Text variant="titleLarge" style={{ fontWeight: 'bold', marginBottom: 10, color: '#333' }}>Plan Link Created!</Text>
-            <Text style={{ color: '#555', marginBottom: 15 }}>Copy this link to view or share your personalized progress web page.</Text>
-            
-            <View style={{ backgroundColor: '#f0fdf4', padding: 15, borderRadius: 8, borderWidth: 1, borderColor: '#bbf7d0', marginBottom: 20 }}>
-              <Text style={{ color: '#002d72', textAlign: 'center' }} selectable>{generatedLink}</Text>
-            </View>
-
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 10 }}>
-              <Button mode="outlined" icon="content-copy" textColor="#002d72" style={{ borderColor: '#002d72', flex: 1, marginRight: 10 }} onPress={async () => {
-                await Clipboard.setStringAsync(generatedLink);
-                Alert.alert("Copied!", "Link copied to clipboard.");
-              }}>
-                Copy
-              </Button>
-              <Button mode="contained" buttonColor="#A5093E" style={{ flex: 1 }} onPress={() => setLinkModalVisible(false)}>
-                Close
-              </Button>
             </View>
           </View>
         </View>
