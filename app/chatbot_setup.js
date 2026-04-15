@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { View, StyleSheet, Alert, Modal, FlatList } from 'react-native';
-import { Text, Button, Appbar, Checkbox, Divider, IconButton, ActivityIndicator, Searchbar } from 'react-native-paper';
+import { Text, Button, Appbar, Checkbox, Divider, IconButton, ActivityIndicator, Searchbar, TextInput } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import { Picker } from '@react-native-picker/picker';
 import FeedbackButton from '../components/FeedbackButton';
@@ -23,6 +23,8 @@ const SubjectCheckbox = React.memo(({ code, name, isChecked, onToggle }) => {
 
 export default function ChatbotSetup() {
   const router = useRouter();
+
+  const [pastedPlan, setPastedPlan] = useState('');
 
   const [terms, setTerms] = useState([]);
   const [selectedTerm, setSelectedTerm] = useState();
@@ -172,15 +174,16 @@ export default function ChatbotSetup() {
       setTimeout(() => {
         setLoading(false);
         router.push({
-          pathname: '/chatbot',
-          params: {
-            termName: termObj.description,
-            termCode: termObj.code,
-            subjects: subjectsString,
-            courseCount: filtered.length.toString(),
-            courseSummary: summary,
-          }
-        });
+        pathname: '/chatbot',
+        params: {
+          termName: termObj.description,
+          termCode: termObj.code,
+          subjects: subjectsString,
+          courseCount: filtered.length.toString(),
+          courseSummary: summary,
+          personalPlan: pastedPlan, // <--- ADD THIS LINE
+        }
+      });
       }, 100);
 
     } catch (error) {
@@ -227,6 +230,18 @@ export default function ChatbotSetup() {
             ? `2. Selected ${selectedSubjects.length} Subject(s)`
             : '2. Select Subjects (Check all that apply)'}
         </Button>
+
+        <TextInput
+          mode="outlined"
+          label="Paste your Custom/Premade Plan (Optional)"
+          placeholder="Paste the plan you copied from the Personalize Plan screen..."
+          value={pastedPlan}
+          onChangeText={setPastedPlan}
+          multiline={true}
+          numberOfLines={4}
+          style={{ backgroundColor: '#fff', marginBottom: 20 }}
+          activeOutlineColor="#002d72"
+        />
 
         <Button
           mode="contained"
