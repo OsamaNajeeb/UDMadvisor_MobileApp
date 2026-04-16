@@ -17,7 +17,7 @@ export default function Chatbot() {
   const flatListRef = useRef(null);
 
   // Receive filtered course data from chatbot_setup screen
-  const { termName, termCode, subjects, courseCount, courseSummary } = useLocalSearchParams();
+  const { termName, termCode, subjects, courseCount, courseSummary, personalPlan } = useLocalSearchParams();
 
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -99,6 +99,7 @@ export default function Chatbot() {
           // Send the pre-filtered course data so the server injects it into the AI prompt
           term_name: termName || '',
           course_summary: courseSummary || '',
+          personal_plan: personalPlan || '',
         }),
       });
 
