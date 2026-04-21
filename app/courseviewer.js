@@ -119,6 +119,28 @@ const generateCalendarEvents = (courses) => {
 // --- 2. MOVED OUTSIDE: The Time Formatter ---
 const formatTime = (t) => (t && t.length >= 4) ? `${t.slice(0, 2)}:${t.slice(2)}` : 'TBD';
 
+// --- 2b. Meeting type helpers ---
+// Banner tags each meeting with a type like "Class", "Recitation", "Laboratory",
+// "Discussion", "Studio", "Seminar", "Clinical", etc. We want to label meetings
+// only when a course mixes types (e.g. Class + Recitation), so a plain single-
+// meeting lecture doesn't show a redundant "Class" badge.
+const getMeetingType = (meetingObj) => {
+  const m = meetingObj?.meetingTime || meetingObj || {};
+  // Support both the formatted (snake_case, flat) shape and the raw Banner shape.
+  return (m.meeting_type_description || m.meetingTypeDescription || '').trim();
+};
+
+const shouldShowMeetingTypes = (meetingTimes) => {
+  if (!meetingTimes || meetingTimes.length < 2) return false;
+  const types = new Set(
+    meetingTimes
+      .map(getMeetingType)
+      .filter(Boolean)
+      .map(t => t.toLowerCase())
+  );
+  return types.size > 1;
+};
+
 // --- 3. NEW: THE MEMOIZED COURSE CARD ---
 // This stops React from redrawing the cards unless you specifically click "Add" or "Remove" on them!
 const CourseCard = React.memo(({ course, isSelected, onToggle, onPrereqPress, onViewDetailsPress }) => {
@@ -151,31 +173,38 @@ const CourseCard = React.memo(({ course, isSelected, onToggle, onPrereqPress, on
         </View>
         
 
-        {course.meeting_times?.map((meetingObj, index) => {
-          const meeting = meetingObj.meetingTime || meetingObj;
-          const begin = meeting.beginTime || meeting.meeting_begin_time;
-          const end = meeting.endTime || meeting.meeting_end_time;
-          let days = "";
-          if (meeting.monday) days += "M ";
-          if (meeting.tuesday) days += "T ";
-          if (meeting.wednesday) days += "W ";
-          if (meeting.thursday) days += "Th ";
-          if (meeting.friday) days += "F ";
-          if (meeting.saturday) days += "Sat ";
+        {(() => {
+          const showTypes = shouldShowMeetingTypes(course.meeting_times);
+          return course.meeting_times?.map((meetingObj, index) => {
+            const meeting = meetingObj.meetingTime || meetingObj;
+            const begin = meeting.beginTime || meeting.meeting_begin_time;
+            const end = meeting.endTime || meeting.meeting_end_time;
+            let days = "";
+            if (meeting.monday) days += "M ";
+            if (meeting.tuesday) days += "T ";
+            if (meeting.wednesday) days += "W ";
+            if (meeting.thursday) days += "Th ";
+            if (meeting.friday) days += "F ";
+            if (meeting.saturday) days += "Sat ";
 
-          return (
-            <View key={index} style={{ marginTop: 5 }}>
-              {begin ? (
-                <Text style={styles.timeText}>
-                  🕒 {days.trim()} | {formatTime(begin)} - {formatTime(end)}
-                  {meeting.room ? ` (Rm ${meeting.room})` : ''}
-                </Text>
-              ) : (
-                <Text style={styles.timeText}>🕒 Asynchronous (No scheduled time)</Text>
-              )}
-            </View>
-          );
-        })}
+            const typeLabel = showTypes ? getMeetingType(meetingObj) : '';
+
+            return (
+              <View key={index} style={{ marginTop: 5 }}>
+                {begin ? (
+                  <Text style={styles.timeText}>
+                    🕒
+                    {typeLabel ? <Text style={styles.meetingTypeTag}> {typeLabel}: </Text> : ' '}
+                    {days.trim()} | {formatTime(begin)} - {formatTime(end)}
+                    {meeting.room ? ` (Rm ${meeting.room})` : ''}
+                  </Text>
+                ) : (
+                  <Text style={styles.timeText}>🕒 Asynchronous (No scheduled time)</Text>
+                )}
+              </View>
+            );
+          });
+        })()}
 
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 }}>
           <Text style={{ fontWeight: '600', color: '#555' }}>📌 Section: {course.section}</Text>
@@ -600,6 +629,7 @@ const applyFilters = () => {
       }
       if (copyToggles.meetingTimes) {
         if (course.meeting_times && course.meeting_times.length > 0) {
+          const showTypes = shouldShowMeetingTypes(course.meeting_times);
           course.meeting_times.forEach((meetingObj) => {
             const meeting = meetingObj.meetingTime || meetingObj;
             const begin = meeting.beginTime || meeting.meeting_begin_time;
@@ -612,11 +642,12 @@ const applyFilters = () => {
             if (meeting.thursday) daysArray.push("Th");
             if (meeting.friday) daysArray.push("F");
             if (meeting.saturday) daysArray.push("Sat");
-            
+
             const daysString = daysArray.join(" | ");
+            const typeLabel = showTypes ? (getMeetingType(meetingObj) || 'Meeting') : 'Class';
 
             if (begin && end) {
-              text += `Meeting Times: Class: ${formatTime(begin)} - ${formatTime(end)}. Days: ${daysString}\n`;
+              text += `Meeting Times: ${typeLabel}: ${formatTime(begin)} - ${formatTime(end)}. Days: ${daysString}\n`;
             } else {
               text += `Meeting Times: Asynchronous (No scheduled time)\n`;
             }
@@ -1125,6 +1156,7 @@ const styles = StyleSheet.create({
   courseCode: { fontWeight: 'bold', color: '#A5093E' },
   courseName: { marginBottom: 10, color: '#333' },
   timeText: { color: '#666', fontStyle: 'italic', marginTop: 5 },
+  meetingTypeTag: { color: '#002d72', fontStyle: 'normal', fontWeight: 'bold' },
   onlineBadge: { backgroundColor: '#e0f2fe', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
   onlineBadgeText: { fontSize: 12, color: '#002d72', fontWeight: 'bold' },
 modalOverlay: { 
