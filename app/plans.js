@@ -217,9 +217,23 @@ export default function PlansViewer() {
       const asset = result.assets?.[0];
       if (!asset?.uri) throw new Error('No file was selected.');
 
-      // Read as text via the new expo-file-system API
-      const file = new File(asset.uri);
-      const text = file.text();
+      // Read as text. file.text() returns a Promise in expo-file-system@19 —
+      // missing the await here was the bug that made every import fail with
+      // "not valid JSON" (JSON.parse was getting a Promise stringified to
+      // "[object Promise]"). We also have a legacy fallback in case the
+      // new File API isn't fully wired in the current build.
+      let text;
+      try {
+        const file = new File(asset.uri);
+        text = await file.text();
+      } catch (readErr) {
+        console.warn('New File.text() read failed, falling back to legacy:', readErr);
+        const { readAsStringAsync } = require('expo-file-system/legacy');
+        text = await readAsStringAsync(asset.uri);
+      }
+      if (typeof text !== 'string' || text.length === 0) {
+        throw new Error('The file was empty or unreadable.');
+      }
 
       const env = envelopeFromJson(text);
       const id = await saveImportedPlan(env);

@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { View, StyleSheet, Alert, Modal, FlatList } from 'react-native';
-import { Text, Button, Appbar, Checkbox, Divider, IconButton, ActivityIndicator, Searchbar, TextInput } from 'react-native-paper';
-import { useRouter } from 'expo-router';
+import { Text, Button, Appbar, Checkbox, Divider, IconButton, ActivityIndicator, Searchbar } from 'react-native-paper';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { Picker } from '@react-native-picker/picker';
 import FeedbackButton from '../components/FeedbackButton';
 
 import subjectsData from '../store/full_courses.json';
+import { listImportedPlans, loadImportedPlan } from '../utils/planStorage';
 
 const API_BASE_URL = "https://udmadvisor-server.onrender.com";
 
@@ -24,7 +25,9 @@ const SubjectCheckbox = React.memo(({ code, name, isChecked, onToggle }) => {
 export default function ChatbotSetup() {
   const router = useRouter();
 
-  const [pastedPlan, setPastedPlan] = useState('');
+  // Imported plan selection (replaces the old free-text paste field).
+  const [importedPlans, setImportedPlans] = useState([]);
+  const [selectedPlanId, setSelectedPlanId] = useState('');  // '' = no plan
 
   const [terms, setTerms] = useState([]);
   const [selectedTerm, setSelectedTerm] = useState();
@@ -32,6 +35,21 @@ export default function ChatbotSetup() {
   const [subjectModalVisible, setSubjectModalVisible] = useState(false);
   const [subjectSearchQuery, setSubjectSearchQuery] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Refresh imported-plan list every time this screen gains focus
+  // (e.g. after the user imports a new plan from plans.js and comes back).
+  useFocusEffect(
+    useCallback(() => {
+      let alive = true;
+      listImportedPlans()
+        .then(list => { if (alive) setImportedPlans(list); })
+        .catch(e => {
+          console.warn('Failed to load imported plans:', e);
+          if (alive) setImportedPlans([]);
+        });
+      return () => { alive = false; };
+    }, [])
+  );
 
   useEffect(() => {
     let isMounted = true;
@@ -141,6 +159,26 @@ export default function ChatbotSetup() {
     const termObj = terms.find(t => t.code === selectedTerm);
     const subjectsString = selectedSubjects.join(',');
 
+    // Load selected imported plan (if any) and serialize the envelope for
+    // the chat screen. Keeping it as a JSON string in route params means
+    // chatbot.js can forward it to the server untouched — no second trip
+    // to AsyncStorage needed on the next screen.
+    let personalPlanJson = '';
+    if (selectedPlanId) {
+      try {
+        const env = await loadImportedPlan(selectedPlanId);
+        if (env) {
+          personalPlanJson = JSON.stringify(env);
+        } else {
+          // Plan was deleted between selection and Start Chat — quietly fall
+          // back to "no plan" rather than blocking the user.
+          console.warn('Selected plan not found in storage:', selectedPlanId);
+        }
+      } catch (e) {
+        console.warn('Failed to load selected plan:', e);
+      }
+    }
+
     try {
       const apiUrl = `${API_BASE_URL}/api/fetch_courses?term_name=${encodeURIComponent(termObj.description)}&term_code=${termObj.code}&subject=${subjectsString}&refresh_course_data=false`;
 
@@ -174,16 +212,16 @@ export default function ChatbotSetup() {
       setTimeout(() => {
         setLoading(false);
         router.push({
-        pathname: '/chatbot',
-        params: {
-          termName: termObj.description,
-          termCode: termObj.code,
-          subjects: subjectsString,
-          courseCount: filtered.length.toString(),
-          courseSummary: summary,
-          personalPlan: pastedPlan, // <--- ADD THIS LINE
-        }
-      });
+          pathname: '/chatbot',
+          params: {
+            termName: termObj.description,
+            termCode: termObj.code,
+            subjects: subjectsString,
+            courseCount: filtered.length.toString(),
+            courseSummary: summary,
+            personalPlan: personalPlanJson,  // JSON envelope string, or '' for no plan
+          }
+        });
       }, 100);
 
     } catch (error) {
@@ -231,17 +269,31 @@ export default function ChatbotSetup() {
             : '2. Select Subjects (Check all that apply)'}
         </Button>
 
-        <TextInput
-          mode="outlined"
-          label="Paste your Custom/Premade Plan (Optional)"
-          placeholder="Paste the plan you copied from the Personalize Plan screen..."
-          value={pastedPlan}
-          onChangeText={setPastedPlan}
-          multiline={true}
-          numberOfLines={4}
-          style={{ backgroundColor: '#fff', marginBottom: 20 }}
-          activeOutlineColor="#002d72"
-        />
+        <View style={styles.pickerContainer}>
+          <Picker
+            selectedValue={selectedPlanId}
+            onValueChange={(itemValue) => setSelectedPlanId(itemValue)}
+            enabled={!loading}
+          >
+            <Picker.Item label="3. Personal Plan (optional)" value="" color="#666" />
+            {importedPlans.map((meta) => (
+              <Picker.Item key={meta.id} label={meta.name} value={meta.id} />
+            ))}
+          </Picker>
+        </View>
+        {importedPlans.length === 0 ? (
+          <Text style={styles.planHint}>
+            No imported plans yet. Import one from the Plan Viewer to let the AI answer "what's left to take?"
+          </Text>
+        ) : selectedPlanId ? (
+          <Text style={styles.planHintActive}>
+            ✓ AI will use this plan to answer questions about your remaining credits and progress.
+          </Text>
+        ) : (
+          <Text style={styles.planHint}>
+            Pick an imported plan above to get personalized answers, or leave blank for catalog-only help.
+          </Text>
+        )}
 
         <Button
           mode="contained"
@@ -338,6 +390,8 @@ const styles = StyleSheet.create({
   title: { fontWeight: 'bold', textAlign: 'center', marginBottom: 8, color: '#333' },
   subtitle: { textAlign: 'center', color: '#666', marginBottom: 20, fontSize: 14, lineHeight: 20 },
   pickerContainer: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#ccc', borderRadius: 5, marginBottom: 20 },
+  planHint: { fontSize: 12, color: '#888', marginTop: -12, marginBottom: 20, marginLeft: 4, lineHeight: 16 },
+  planHintActive: { fontSize: 12, color: '#166534', marginTop: -12, marginBottom: 20, marginLeft: 4, lineHeight: 16, fontWeight: '600' },
   multiSelectBtn: { backgroundColor: '#fff', borderColor: '#ccc', borderWidth: 1, paddingVertical: 5, marginBottom: 20 },
   button: { backgroundColor: '#002d72', paddingVertical: 5 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },

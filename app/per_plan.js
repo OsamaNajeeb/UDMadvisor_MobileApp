@@ -4,9 +4,6 @@ import { Text, Appbar, Button, Card, Divider, TextInput, IconButton } from 'reac
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Picker } from '@react-native-picker/picker';
 import * as Clipboard from 'expo-clipboard';
-import * as Sharing from 'expo-sharing';
-import { File, Paths } from 'expo-file-system';
-import { StorageAccessFramework, writeAsStringAsync } from 'expo-file-system/legacy';
 import FeedbackButton from '../components/FeedbackButton';
 import {
   buildEnvelope,
@@ -300,6 +297,21 @@ export default function PersonalizePlan() {
     if (!plan || exportBusy) return;
     setExportBusy(true);
     try {
+      // Lazy-load native modules. Importing them at the top of the file
+      // crashes the whole screen at module-load time if the native
+      // side isn't wired up (happens in some Expo Go builds). Requiring
+      // them here makes failures catchable and keeps the screen alive.
+      let File, Paths, Sharing;
+      try {
+        ({ File, Paths } = require('expo-file-system'));
+        Sharing = require('expo-sharing');
+      } catch (e) {
+        throw new Error('File system features are not available in this build. Try "Copy shareable code" instead.');
+      }
+      if (!File || !Paths) {
+        throw new Error('This Expo build does not support file saving. Try "Copy shareable code" instead, or rebuild the app.');
+      }
+
       const env = buildEnvelope(plan, { name: plan.program });
       const json = envelopeToJson(env);
 
@@ -352,6 +364,19 @@ export default function PersonalizePlan() {
     }
     setExportBusy(true);
     try {
+      // Lazy-load — same reasoning as handleExportFile.
+      let StorageAccessFramework, writeAsStringAsync;
+      try {
+        const legacy = require('expo-file-system/legacy');
+        StorageAccessFramework = legacy.StorageAccessFramework;
+        writeAsStringAsync = legacy.writeAsStringAsync;
+      } catch (e) {
+        throw new Error('Folder picker is not available in this build. Use "Share file…" and pick "Save to device" from the share sheet.');
+      }
+      if (!StorageAccessFramework || !writeAsStringAsync) {
+        throw new Error('This Expo build does not support the folder picker. Use "Share file…" instead.');
+      }
+
       const env = buildEnvelope(plan, { name: plan.program });
       const json = envelopeToJson(env);
 
@@ -638,7 +663,7 @@ export default function PersonalizePlan() {
               Share file…
             </Button>
             <Text style={{ color: '#888', fontSize: 12, marginBottom: 15, marginLeft: 4 }}>
-              Opens the share sheet — send via email, Messages, Drive, or "Save to device".
+              Share this .udmplan file to others via email or social media.
             </Text>
 
             {Platform.OS === 'android' && (
@@ -655,7 +680,7 @@ export default function PersonalizePlan() {
                   Save to device folder…
                 </Button>
                 <Text style={{ color: '#888', fontSize: 12, marginBottom: 15, marginLeft: 4 }}>
-                  Pick any folder on your device (Downloads, Documents, etc.) and save the file there directly.
+                  Pick any folder on your device (Downloads, Documents, etc.) and save the file in local storage.
                 </Text>
               </>
             )}
@@ -672,7 +697,7 @@ export default function PersonalizePlan() {
               Copy shareable code
             </Button>
             <Text style={{ color: '#888', fontSize: 12, marginBottom: 5, marginLeft: 4 }}>
-              Copies a compact code to your clipboard. Paste it into any chat — recipient pastes it into "Import Custom Plan".
+              Copies a compact code to your clipboard. Paste it into any chat recipient pastes it into "Import Custom Plan".
             </Text>
           </View>
         </View>
