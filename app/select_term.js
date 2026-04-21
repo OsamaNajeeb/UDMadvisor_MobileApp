@@ -168,8 +168,8 @@ export default function SelectTerm() {
   };
 
   const handleSelectTerm = async () => {
-    if (!selectedTerm || selectedSubjects.length === 0) {
-      Alert.alert("Wait!", "Please select a term and at least one subject.");
+    if (!selectedTerm) {
+      Alert.alert("Wait!", "Please select a term to continue.");
       return;
     }
 
@@ -212,7 +212,7 @@ export default function SelectTerm() {
       const groupedCourses = {};
       data.forEach(course => {
         // Filter by subject
-        if (!selectedSubjects.includes(course.subject)) {
+        if (selectedSubjects.length > 0 && !selectedSubjects.includes(course.subject)) {
           return; 
         }
 
@@ -308,7 +308,7 @@ export default function SelectTerm() {
         >
           {selectedSubjects.length > 0 
             ? `2. Selected ${selectedSubjects.length} Subject(s)` 
-            : '2. Select Subjects (Check all that apply)'}
+            : '2. Select Subjects (Optional)'} {/* <--- CHANGE THIS LINE */}
         </Button>
 
         <Button 

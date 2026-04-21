@@ -1,9 +1,16 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, ScrollView, StyleSheet, ActivityIndicator, Alert, Modal, TouchableOpacity, Share } from 'react-native';
-import { Text, Appbar, Button, Card, Divider, TextInput } from 'react-native-paper';
+import { View, ScrollView, StyleSheet, ActivityIndicator, Alert, Modal, TouchableOpacity, Share, Platform } from 'react-native';
+import { Text, Appbar, Button, Card, Divider, TextInput, IconButton } from 'react-native-paper';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Picker } from '@react-native-picker/picker';
+import * as Clipboard from 'expo-clipboard';
 import FeedbackButton from '../components/FeedbackButton';
+import {
+  buildEnvelope,
+  envelopeToJson,
+  envelopeToShareString,
+  loadImportedPlan,
+} from '../utils/planStorage';
 
 const API_BASE_URL = "https://scraper2-nzef.onrender.com";
 
@@ -52,13 +59,18 @@ const getStatusLabel = (status) => {
 
 export default function PersonalizePlan() {
   const router = useRouter();
-  const { plan_id, year_id } = useLocalSearchParams();
+  const { plan_id, year_id, import_id } = useLocalSearchParams();
+  const isImported = Boolean(import_id);
 
   const [plan, setPlan] = useState(null);
   const [loading, setLoading] = useState(true);
   
   // Share loading state
   const [isLinking, setIsLinking] = useState(false);
+
+  // Export modal state
+  const [exportModalVisible, setExportModalVisible] = useState(false);
+  const [exportBusy, setExportBusy] = useState(false);
 
   // Single shared status picker modal (instead of 40+ inline Pickers)
   const [statusModalVisible, setStatusModalVisible] = useState(false);
@@ -73,6 +85,46 @@ export default function PersonalizePlan() {
   useEffect(() => {
     setPlan(null);
     setLoading(true);
+
+    const hydrate = (rawPlan) => {
+      // rawPlan looks like { program, plan: { semesters: [...] }, ... }
+      return rawPlan.plan.semesters.map(sem => ({
+        ...sem,
+        courses: sem.courses.map(course => {
+          if (course.type === 'group') {
+            return {
+              ...course,
+              courses: course.courses.map(or_group =>
+                or_group.map(inner => ({ ...inner, status: inner.status || '', notes: inner.notes || '' }))
+              )
+            };
+          }
+          return { ...course, status: course.status || '', notes: course.notes || '' };
+        })
+      }));
+    };
+
+    const loadFromImport = async () => {
+      try {
+        const env = await loadImportedPlan(import_id);
+        if (!env) throw new Error("Imported plan not found. It may have been deleted.");
+        // envelope wraps the original plan under env.plan
+        const raw = env.plan;
+        setPlan({
+          ...raw,
+          plan: {
+            ...raw.plan,
+            semesters: hydrate(raw),
+          }
+        });
+      } catch (error) {
+        console.error("Error loading imported plan:", error);
+        Alert.alert("Error", error.message || "Could not open imported plan.");
+        router.back();
+      } finally {
+        setLoading(false);
+      }
+    };
 
     const fetchPlanDetails = async () => {
       if (!plan_id || !year_id) {
@@ -94,26 +146,11 @@ export default function PersonalizePlan() {
         
         if (!response.ok) throw new Error(data?.message || "Failed to fetch plan details");
 
-        const hydratedSemesters = data.plan.semesters.map(sem => ({
-          ...sem,
-          courses: sem.courses.map(course => {
-            if (course.type === 'group') {
-              return {
-                ...course,
-                courses: course.courses.map(or_group => 
-                  or_group.map(inner => ({ ...inner, status: inner.status || '', notes: inner.notes || '' }))
-                )
-              };
-            }
-            return { ...course, status: course.status || '', notes: course.notes || '' };
-          })
-        }));
-
         setPlan({
           ...data,
           plan: {
             ...data.plan,
-            semesters: hydratedSemesters
+            semesters: hydrate(data)
           }
         });
         
@@ -125,8 +162,12 @@ export default function PersonalizePlan() {
       }
     };
 
-    fetchPlanDetails();
-  }, [plan_id, year_id]);
+    if (isImported) {
+      loadFromImport();
+    } else {
+      fetchPlanDetails();
+    }
+  }, [plan_id, year_id, import_id, isImported]);
 
   // --- DEEP-UPDATE HELPERS ---
   const updateCourseStatus = useCallback((semIdx, courseIdx, newStatus) => {
@@ -251,6 +292,147 @@ export default function PersonalizePlan() {
     }
   };
 
+  // --- EXPORT AS .udmplan FILE ---
+  const handleExportFile = async () => {
+    if (!plan || exportBusy) return;
+    setExportBusy(true);
+    try {
+      // Lazy-load native modules. Importing them at the top of the file
+      // crashes the whole screen at module-load time if the native
+      // side isn't wired up (happens in some Expo Go builds). Requiring
+      // them here makes failures catchable and keeps the screen alive.
+      let File, Paths, Sharing;
+      try {
+        ({ File, Paths } = require('expo-file-system'));
+        Sharing = require('expo-sharing');
+      } catch (e) {
+        throw new Error('File system features are not available in this build. Try "Copy shareable code" instead.');
+      }
+      if (!File || !Paths) {
+        throw new Error('This Expo build does not support file saving. Try "Copy shareable code" instead, or rebuild the app.');
+      }
+
+      const env = buildEnvelope(plan, { name: plan.program });
+      const json = envelopeToJson(env);
+
+      // Make a safe filename
+      const safe = (plan.program || 'plan')
+        .replace(/[^A-Za-z0-9_\- ]/g, '')
+        .trim()
+        .replace(/\s+/g, '_')
+        .slice(0, 40) || 'plan';
+      const filename = `${safe}.udmplan`;
+
+      // expo-file-system 19 API: File(Paths.document, name).write(text)
+      const file = new File(Paths.document, filename);
+      if (file.exists) file.delete();
+      file.create();
+      file.write(json);
+
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(file.uri, {
+          mimeType: 'application/json',
+          dialogTitle: 'Share your UDM degree plan',
+          UTI: 'public.json',
+        });
+      } else {
+        Alert.alert(
+          'Saved',
+          `Plan saved to:\n${file.uri}\n\nSharing isn't available on this device, but the file is on disk.`
+        );
+      }
+      setExportModalVisible(false);
+    } catch (e) {
+      console.error('Export file error:', e);
+      Alert.alert('Export failed', e.message || 'Could not export the plan.');
+    } finally {
+      setExportBusy(false);
+    }
+  };
+
+  // --- EXPORT TO A USER-PICKED FOLDER (Android only, via SAF) ---
+  //
+  // On Android this opens the system folder picker so the user can pick a
+  // destination (Downloads, Documents, Drive, anywhere they have write
+  // access). On iOS this is unsupported by the OS — apps don't get to write
+  // to arbitrary paths — so we just fall back to the share sheet.
+  const handleExportToFolder = async () => {
+    if (!plan || exportBusy) return;
+    if (Platform.OS !== 'android') {
+      // iOS: silently fall through to the share-sheet flow.
+      return handleExportFile();
+    }
+    setExportBusy(true);
+    try {
+      // Lazy-load — same reasoning as handleExportFile.
+      let StorageAccessFramework, writeAsStringAsync;
+      try {
+        const legacy = require('expo-file-system/legacy');
+        StorageAccessFramework = legacy.StorageAccessFramework;
+        writeAsStringAsync = legacy.writeAsStringAsync;
+      } catch (e) {
+        throw new Error('Folder picker is not available in this build. Use "Share file…" and pick "Save to device" from the share sheet.');
+      }
+      if (!StorageAccessFramework || !writeAsStringAsync) {
+        throw new Error('This Expo build does not support the folder picker. Use "Share file…" instead.');
+      }
+
+      const env = buildEnvelope(plan, { name: plan.program });
+      const json = envelopeToJson(env);
+
+      const safe = (plan.program || 'plan')
+        .replace(/[^A-Za-z0-9_\- ]/g, '')
+        .trim()
+        .replace(/\s+/g, '_')
+        .slice(0, 40) || 'plan';
+      const filename = `${safe}.udmplan`;
+
+      // Ask the user to pick a folder. Returns { granted, directoryUri }.
+      const perm = await StorageAccessFramework.requestDirectoryPermissionsAsync();
+      if (!perm.granted) {
+        // They cancelled the picker — not an error, just bail.
+        setExportBusy(false);
+        return;
+      }
+
+      const fileUri = await StorageAccessFramework.createFileAsync(
+        perm.directoryUri,
+        filename,
+        'application/json'
+      );
+      await writeAsStringAsync(fileUri, json); // default UTF-8
+
+      setExportModalVisible(false);
+      Alert.alert('Saved', `"${filename}" was saved to the folder you chose.`);
+    } catch (e) {
+      console.error('Export to folder error:', e);
+      Alert.alert('Save failed', e.message || 'Could not save the plan to that folder.');
+    } finally {
+      setExportBusy(false);
+    }
+  };
+
+  // --- EXPORT AS SHAREABLE CODE ---
+  const handleExportCode = async () => {
+    if (!plan || exportBusy) return;
+    setExportBusy(true);
+    try {
+      const env = buildEnvelope(plan, { name: plan.program });
+      const code = envelopeToShareString(env);
+      await Clipboard.setStringAsync(code);
+      Alert.alert(
+        'Copied!',
+        `A shareable code for "${plan.program}" has been copied to your clipboard. Anyone with the code can import this plan into their UDM Advisor app.`
+      );
+      setExportModalVisible(false);
+    } catch (e) {
+      console.error('Export code error:', e);
+      Alert.alert('Export failed', e.message || 'Could not generate code.');
+    } finally {
+      setExportBusy(false);
+    }
+  };
+
   if (loading) {
     return (
       <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
@@ -272,16 +454,27 @@ export default function PersonalizePlan() {
           <Text variant="headlineSmall" style={styles.titleText}>{plan.program}</Text>
           <Text style={styles.yearText}>Update your course statuses below to track your progress.</Text>
           
-          <Button 
-            mode="contained" 
-            buttonColor="#002d72" 
-            icon="share-variant" 
-            style={{ marginTop: 15 }} 
-            onPress={sharePlan} 
-            loading={isLinking}
-          >
-            Share Plan
-          </Button>
+          <View style={{ flexDirection: 'row', gap: 10, marginTop: 15 }}>
+            <Button
+              mode="contained"
+              buttonColor="#002d72"
+              icon="share-variant"
+              style={{ flex: 1 }}
+              onPress={sharePlan}
+              loading={isLinking}
+            >
+              Share
+            </Button>
+            <Button
+              mode="contained"
+              buttonColor="#A5093E"
+              icon="download-outline"
+              style={{ flex: 1 }}
+              onPress={() => setExportModalVisible(true)}
+            >
+              Export
+            </Button>
+          </View>
         </View>
 
         {plan.plan.semesters && plan.plan.semesters.map((semester, semIdx) => {
@@ -443,6 +636,69 @@ export default function PersonalizePlan() {
                 <Button mode="contained" buttonColor="#002d72" onPress={confirmNote}>Save</Button>
               </View>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={exportModalVisible} animationType="fade" transparent={true} onRequestClose={() => !exportBusy && setExportModalVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalBox}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+              <Text variant="titleLarge" style={{ fontWeight: 'bold', color: '#A5093E' }}>Export Plan</Text>
+              <IconButton icon="close" size={20} onPress={() => !exportBusy && setExportModalVisible(false)} />
+            </View>
+            <Text style={{ color: '#666', marginBottom: 20 }}>
+              Share this plan with others so they can import it into their UDM Advisor app.
+            </Text>
+
+            <Button
+              mode="contained"
+              icon="share-outline"
+              buttonColor="#002d72"
+              style={{ marginBottom: 10 }}
+              onPress={handleExportFile}
+              loading={exportBusy}
+              disabled={exportBusy}
+            >
+              Share file…
+            </Button>
+            <Text style={{ color: '#888', fontSize: 12, marginBottom: 15, marginLeft: 4 }}>
+              Share this .udmplan file to others via email or social media.
+            </Text>
+
+            {Platform.OS === 'android' && (
+              <>
+                <Button
+                  mode="contained"
+                  icon="folder-download-outline"
+                  buttonColor="#002d72"
+                  style={{ marginBottom: 10 }}
+                  onPress={handleExportToFolder}
+                  loading={exportBusy}
+                  disabled={exportBusy}
+                >
+                  Save to device folder…
+                </Button>
+                <Text style={{ color: '#888', fontSize: 12, marginBottom: 15, marginLeft: 4 }}>
+                  Pick any folder on your device (Downloads, Documents, etc.) and save the file in local storage.
+                </Text>
+              </>
+            )}
+
+            <Button
+              mode="contained"
+              icon="content-copy"
+              buttonColor="#A5093E"
+              style={{ marginBottom: 10 }}
+              onPress={handleExportCode}
+              loading={exportBusy}
+              disabled={exportBusy}
+            >
+              Copy shareable code
+            </Button>
+            <Text style={{ color: '#888', fontSize: 12, marginBottom: 5, marginLeft: 4 }}>
+              Copies a compact code to your clipboard. Paste it into any chat recipient pastes it into "Import Custom Plan".
+            </Text>
           </View>
         </View>
       </Modal>

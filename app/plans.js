@@ -1,9 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { View, StyleSheet, FlatList, Modal, Alert, ActivityIndicator, ScrollView } from 'react-native';
-import { Text, Appbar, Card, Button, TextInput, Divider, List } from 'react-native-paper';
-import { useRouter } from 'expo-router';
+import { Text, Appbar, Card, Button, TextInput, Divider, List, IconButton } from 'react-native-paper';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { Picker } from '@react-native-picker/picker';
+import * as Clipboard from 'expo-clipboard';
+import * as DocumentPicker from 'expo-document-picker';
+import { File } from 'expo-file-system';
 import FeedbackButton from '../components/FeedbackButton';
+import {
+  listImportedPlans,
+  saveImportedPlan,
+  deleteImportedPlan,
+  envelopeFromJson,
+  envelopeFromShareString,
+} from '../utils/planStorage';
 
 // Cloud Server URL
 const API_BASE_URL = "https://scraper2-nzef.onrender.com";
@@ -85,6 +95,31 @@ export default function PlansViewer() {
   const [searchProgramText, setSearchProgramText] = useState('');
   const [showProgramList, setShowProgramList] = useState(false);
 
+  // --- Imported plans (local, AsyncStorage) ---
+  const [importedPlans, setImportedPlans] = useState([]);
+  const [importModalVisible, setImportModalVisible] = useState(false);
+  const [codePasteText, setCodePasteText] = useState('');
+  const [codePasteVisible, setCodePasteVisible] = useState(false);
+  const [importBusy, setImportBusy] = useState(false);
+
+  const refreshImportedPlans = useCallback(async () => {
+    try {
+      const list = await listImportedPlans();
+      setImportedPlans(list);
+    } catch (e) {
+      console.error('listImportedPlans failed:', e);
+      setImportedPlans([]);
+    }
+  }, []);
+
+  // Refresh on first mount AND every time the screen regains focus
+  // (e.g. after backing out of per_plan.js).
+  useFocusEffect(
+    useCallback(() => {
+      refreshImportedPlans();
+    }, [refreshImportedPlans])
+  );
+
 // 1. Fetch the plans from the database when the screen loads
   useEffect(() => {
     const fetchPlans = async () => {
@@ -160,6 +195,166 @@ export default function PlansViewer() {
     });
   };
 
+  // --- IMPORT FLOW ---
+
+  // Read a plan file picked via the system picker, save it locally.
+  const handleImportFromFile = async () => {
+    if (importBusy) return;
+    setImportBusy(true);
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        // Accept both our custom extension and generic JSON; some pickers
+        // won't show files if the extension isn't in a common MIME list.
+        type: ['application/json', '*/*'],
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+
+      if (result.canceled) {
+        setImportBusy(false);
+        return;
+      }
+      const asset = result.assets?.[0];
+      if (!asset?.uri) throw new Error('No file was selected.');
+
+      // Read as text. file.text() returns a Promise in expo-file-system@19 —
+      // missing the await here was the bug that made every import fail with
+      // "not valid JSON" (JSON.parse was getting a Promise stringified to
+      // "[object Promise]"). We also have a legacy fallback in case the
+      // new File API isn't fully wired in the current build.
+      let text;
+      try {
+        const file = new File(asset.uri);
+        text = await file.text();
+      } catch (readErr) {
+        console.warn('New File.text() read failed, falling back to legacy:', readErr);
+        const { readAsStringAsync } = require('expo-file-system/legacy');
+        text = await readAsStringAsync(asset.uri);
+      }
+      if (typeof text !== 'string' || text.length === 0) {
+        throw new Error('The file was empty or unreadable.');
+      }
+
+      const env = envelopeFromJson(text);
+      const id = await saveImportedPlan(env);
+      await refreshImportedPlans();
+
+      setImportModalVisible(false);
+      Alert.alert('Imported!', `"${env.name}" was added to your imported plans.`, [
+        { text: 'Open', onPress: () => router.push({ pathname: '/per_plan', params: { import_id: id } }) },
+        { text: 'Later', style: 'cancel' },
+      ]);
+    } catch (e) {
+      console.error('Import from file failed:', e);
+      Alert.alert('Import failed', e.message || 'Could not import that file.');
+    } finally {
+      setImportBusy(false);
+    }
+  };
+
+  // Open the "paste a code" sub-modal, pre-fill from clipboard if it looks like our code.
+  const openCodePaste = async () => {
+    try {
+      const clip = await Clipboard.getStringAsync();
+      if (clip && clip.trim().startsWith('UDM1:')) {
+        setCodePasteText(clip.trim());
+      } else {
+        setCodePasteText('');
+      }
+    } catch {
+      setCodePasteText('');
+    }
+    setImportModalVisible(false);
+    setCodePasteVisible(true);
+  };
+
+  const handleImportFromCode = async () => {
+    if (importBusy) return;
+    const text = (codePasteText || '').trim();
+    if (!text) {
+      Alert.alert('Nothing pasted', 'Paste the code you received, then tap Import.');
+      return;
+    }
+    setImportBusy(true);
+    try {
+      const env = envelopeFromShareString(text);
+      const id = await saveImportedPlan(env);
+      await refreshImportedPlans();
+
+      setCodePasteVisible(false);
+      setCodePasteText('');
+      Alert.alert('Imported!', `"${env.name}" was added to your imported plans.`, [
+        { text: 'Open', onPress: () => router.push({ pathname: '/per_plan', params: { import_id: id } }) },
+        { text: 'Later', style: 'cancel' },
+      ]);
+    } catch (e) {
+      console.error('Import from code failed:', e);
+      Alert.alert('Import failed', e.message || 'That code is not a valid UDM Advisor plan.');
+    } finally {
+      setImportBusy(false);
+    }
+  };
+
+  const handleDeleteImported = (meta) => {
+    Alert.alert(
+      'Delete imported plan?',
+      `"${meta.name}" will be removed from this device. This can't be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteImportedPlan(meta.id);
+              await refreshImportedPlans();
+            } catch (e) {
+              Alert.alert('Error', 'Could not delete plan.');
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const renderImportedCard = (meta) => (
+    <Card key={meta.id} style={[styles.card, { borderLeftWidth: 4, borderLeftColor: '#A5093E' }]}>
+      <Card.Content style={{ paddingRight: 4 }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <View style={{ flex: 1, paddingRight: 8 }}>
+            <Text variant="titleMedium" style={styles.planTitle} numberOfLines={1}>
+              {meta.name}
+            </Text>
+            {meta.program && meta.program !== meta.name ? (
+              <Text variant="bodySmall" style={{ color: '#666' }} numberOfLines={1}>
+                {meta.program}
+              </Text>
+            ) : null}
+            <Text variant="bodySmall" style={{ color: '#999', marginTop: 2 }}>
+              Imported {new Date(meta.importedAt).toLocaleDateString()}
+            </Text>
+          </View>
+          <IconButton
+            icon="delete-outline"
+            iconColor="#A5093E"
+            size={22}
+            onPress={() => handleDeleteImported(meta)}
+          />
+        </View>
+      </Card.Content>
+      <Card.Actions style={{ justifyContent: 'flex-start', paddingLeft: 10 }}>
+        <Button
+          mode="text"
+          icon="eye"
+          textColor="#002d72"
+          onPress={() => router.push({ pathname: '/per_plan', params: { import_id: meta.id } })}
+        >
+          Open Plan
+        </Button>
+      </Card.Actions>
+    </Card>
+  );
+
   // --- UI RENDERER FOR EACH CARD ---
   const renderPlanCard = ({ item: plan }) => (
     <Card style={styles.card}>
@@ -192,6 +387,16 @@ export default function PlansViewer() {
       <Appbar.Header style={{ backgroundColor: '#A5093E' }}>
         <Appbar.BackAction onPress={() => router.back()} color="#fff" />
         <Appbar.Content title="Plan Viewer" color="#fff" />
+        <Button
+          mode="text"
+          icon="file-import-outline"
+          textColor="#fff"
+          compact
+          onPress={() => setImportModalVisible(true)}
+          style={{ marginRight: 4 }}
+        >
+          Import
+        </Button>
       </Appbar.Header>
 
       <View style={styles.content}>
@@ -284,6 +489,16 @@ export default function PlansViewer() {
             data={filteredPlans}
             keyExtractor={(item) => item.plan_id.toString()}
             renderItem={renderPlanCard}
+            ListHeaderComponent={
+              importedPlans.length > 0 ? (
+                <View style={{ marginBottom: 20 }}>
+                  <Text style={styles.sectionLabel}>My Imported Plans</Text>
+                  {importedPlans.map(renderImportedCard)}
+                  <Divider style={{ marginVertical: 10 }} />
+                  <Text style={styles.sectionLabel}>UDM Catalog Plans</Text>
+                </View>
+              ) : null
+            }
             ListEmptyComponent={
               <Text style={{ textAlign: 'center', marginTop: 40, color: '#666' }}>
                 No plans found matching your criteria.
@@ -331,6 +546,99 @@ export default function PlansViewer() {
         <FeedbackButton />
       </Modal>
 
+      {/* --- IMPORT METHOD PICKER MODAL --- */}
+      <Modal visible={importModalVisible} animationType="fade" transparent={true} onRequestClose={() => setImportModalVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+              <Text variant="titleLarge" style={{ fontWeight: 'bold', color: '#A5093E' }}>Import Custom Plan</Text>
+              <IconButton icon="close" size={20} onPress={() => setImportModalVisible(false)} />
+            </View>
+            <Text style={{ color: '#666', marginBottom: 20 }}>
+              Bring in a plan someone else exported from UDM Advisor.
+            </Text>
+
+            <Button
+              mode="contained"
+              icon="file-upload-outline"
+              buttonColor="#002d72"
+              style={{ marginBottom: 10 }}
+              onPress={handleImportFromFile}
+              loading={importBusy}
+              disabled={importBusy}
+            >
+              From a .udmplan file
+            </Button>
+            <Text style={{ color: '#888', fontSize: 12, marginBottom: 15, marginLeft: 4 }}>
+              Pick a file you received via email, Drive, Files, etc.
+            </Text>
+
+            <Button
+              mode="contained"
+              icon="clipboard-text-outline"
+              buttonColor="#A5093E"
+              style={{ marginBottom: 10 }}
+              onPress={openCodePaste}
+              disabled={importBusy}
+            >
+              Paste a shareable code
+            </Button>
+            <Text style={{ color: '#888', fontSize: 12, marginBottom: 5, marginLeft: 4 }}>
+              Paste a code someone shared with you (starts with "UDM1:").
+            </Text>
+          </View>
+        </View>
+      </Modal>
+
+      {/* --- PASTE CODE MODAL --- */}
+      <Modal visible={codePasteVisible} animationType="slide" transparent={true} onRequestClose={() => !importBusy && setCodePasteVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+              <Text variant="titleLarge" style={{ fontWeight: 'bold', color: '#A5093E' }}>Paste Plan Code</Text>
+              <IconButton icon="close" size={20} onPress={() => !importBusy && setCodePasteVisible(false)} />
+            </View>
+            <Text style={{ color: '#666', marginBottom: 15 }}>
+              Paste the code starting with "UDM1:" that you received.
+            </Text>
+
+            <TextInput
+              mode="outlined"
+              label="Plan code"
+              value={codePasteText}
+              onChangeText={setCodePasteText}
+              multiline
+              numberOfLines={5}
+              activeOutlineColor="#002d72"
+              style={{ backgroundColor: '#fff', marginBottom: 15, maxHeight: 160 }}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 10 }}>
+              <Button
+                mode="outlined"
+                textColor="#666"
+                style={{ borderColor: '#ccc' }}
+                onPress={() => { setCodePasteVisible(false); setCodePasteText(''); }}
+                disabled={importBusy}
+              >
+                Cancel
+              </Button>
+              <Button
+                mode="contained"
+                buttonColor="#002d72"
+                onPress={handleImportFromCode}
+                loading={importBusy}
+                disabled={importBusy || !codePasteText.trim()}
+              >
+                Import
+              </Button>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
     </View>
   );
 }
@@ -351,6 +659,7 @@ const styles = StyleSheet.create({
   card: { marginBottom: 15, backgroundColor: '#fff' },
   planTitle: { fontWeight: 'bold', color: '#333' },
   planMinor: { color: '#666', marginTop: 4 },
+  sectionLabel: { fontSize: 13, fontWeight: 'bold', color: '#A5093E', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8, marginLeft: 4 },
   modalOverlay: { 
     flex: 1, 
     backgroundColor: 'rgba(0,0,0,0.5)', 
