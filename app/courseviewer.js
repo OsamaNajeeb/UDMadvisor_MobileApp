@@ -237,10 +237,10 @@ const CourseCard = React.memo(({ course, isSelected, onToggle, onPrereqPress, on
         {/* --- COMPACT PREREQ & CROSS-LIST STATUS --- */}
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8, borderTopWidth: 1, borderTopColor: '#eee', paddingTop: 5 }}>
             <Text style={{ fontSize: 13, color: '#666' }}>
-              🔗 Cross-Listed: <Text style={{ fontWeight: 'bold', color: course.cross_list ? '#A5093E' : '#666' }}>{course.cross_list ? 'Yes' : 'No'}</Text>
+              ⚠️ Prerequisite: <Text style={{ fontWeight: 'bold', color: course.prerequisites ? '#A5093E' : '#666' }}>{course.prerequisites ? 'Yes' : 'No'}</Text>
             </Text>
             <Text style={{ fontSize: 13, color: '#666' }}>
-              ⚠️ Prerequisite: <Text style={{ fontWeight: 'bold', color: course.prerequisites ? '#A5093E' : '#666' }}>{course.prerequisites ? 'Yes' : 'No'}</Text>
+              🔗 Cross-Listed: <Text style={{ fontWeight: 'bold', color: course.cross_list ? '#A5093E' : '#666' }}>{course.cross_list ? 'Yes' : 'No'}</Text>
             </Text>
           </View>
       </Card.Content>
