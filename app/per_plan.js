@@ -71,6 +71,13 @@ export default function PersonalizePlan() {
   // Export modal state
   const [exportModalVisible, setExportModalVisible] = useState(false);
   const [exportBusy, setExportBusy] = useState(false);
+  const [exportName, setExportName] = useState('');
+
+  // Open the export modal and pre-fill the name with the plan's program title.
+  const openExportModal = () => {
+    setExportName(plan?.program || 'Degree Plan');
+    setExportModalVisible(true);
+  };
 
   // Single shared status picker modal (instead of 40+ inline Pickers)
   const [statusModalVisible, setStatusModalVisible] = useState(false);
@@ -292,6 +299,13 @@ export default function PersonalizePlan() {
     }
   };
 
+  // Resolve the user-chosen export name. Falls back to the plan's program
+  // if the field was cleared. Never returns an empty string.
+  const resolveExportName = () => {
+    const n = (exportName || '').trim();
+    return n || plan?.program || 'Degree Plan';
+  };
+
   // --- EXPORT AS .udmplan FILE ---
   const handleExportFile = async () => {
     if (!plan || exportBusy) return;
@@ -312,11 +326,12 @@ export default function PersonalizePlan() {
         throw new Error('This Expo build does not support file saving. Try "Copy shareable code" instead, or rebuild the app.');
       }
 
-      const env = buildEnvelope(plan, { name: plan.program });
+      const chosenName = resolveExportName();
+      const env = buildEnvelope(plan, { name: chosenName });
       const json = envelopeToJson(env);
 
-      // Make a safe filename
-      const safe = (plan.program || 'plan')
+      // Make a safe filename from the chosen name
+      const safe = chosenName
         .replace(/[^A-Za-z0-9_\- ]/g, '')
         .trim()
         .replace(/\s+/g, '_')
@@ -377,10 +392,11 @@ export default function PersonalizePlan() {
         throw new Error('This Expo build does not support the folder picker. Use "Share file…" instead.');
       }
 
-      const env = buildEnvelope(plan, { name: plan.program });
+      const chosenName = resolveExportName();
+      const env = buildEnvelope(plan, { name: chosenName });
       const json = envelopeToJson(env);
 
-      const safe = (plan.program || 'plan')
+      const safe = chosenName
         .replace(/[^A-Za-z0-9_\- ]/g, '')
         .trim()
         .replace(/\s+/g, '_')
@@ -417,12 +433,13 @@ export default function PersonalizePlan() {
     if (!plan || exportBusy) return;
     setExportBusy(true);
     try {
-      const env = buildEnvelope(plan, { name: plan.program });
+      const chosenName = resolveExportName();
+      const env = buildEnvelope(plan, { name: chosenName });
       const code = envelopeToShareString(env);
       await Clipboard.setStringAsync(code);
       Alert.alert(
         'Copied!',
-        `A shareable code for "${plan.program}" has been copied to your clipboard. Anyone with the code can import this plan into their UDM Advisor app.`
+        `A shareable code for "${chosenName}" has been copied to your clipboard. Anyone with the code can import this plan into their UDM Advisor app.`
       );
       setExportModalVisible(false);
     } catch (e) {
@@ -470,7 +487,7 @@ export default function PersonalizePlan() {
               buttonColor="#A5093E"
               icon="download-outline"
               style={{ flex: 1 }}
-              onPress={() => setExportModalVisible(true)}
+              onPress={openExportModal}
             >
               Export
             </Button>
@@ -647,8 +664,23 @@ export default function PersonalizePlan() {
               <Text variant="titleLarge" style={{ fontWeight: 'bold', color: '#A5093E' }}>Export Plan</Text>
               <IconButton icon="close" size={20} onPress={() => !exportBusy && setExportModalVisible(false)} />
             </View>
-            <Text style={{ color: '#666', marginBottom: 20 }}>
-              Share this plan with others so they can import it into their UDM Advisor app.
+            <Text style={{ color: '#666', marginBottom: 15 }}>
+              Give this copy a name so you can tell it apart later, then pick how to share it.
+            </Text>
+
+            <TextInput
+              mode="outlined"
+              label="Plan name"
+              value={exportName}
+              onChangeText={setExportName}
+              activeOutlineColor="#002d72"
+              style={{ backgroundColor: '#fff', marginBottom: 5 }}
+              maxLength={60}
+              disabled={exportBusy}
+              right={exportName ? <TextInput.Icon icon="close" onPress={() => setExportName('')} /> : null}
+            />
+            <Text style={{ color: '#888', fontSize: 12, marginBottom: 20, marginLeft: 4 }}>
+              Tip: use something specific like "After summer retakes" or "Dr. R's plan" — not just the program name.
             </Text>
 
             <Button
@@ -663,7 +695,7 @@ export default function PersonalizePlan() {
               Share file…
             </Button>
             <Text style={{ color: '#888', fontSize: 12, marginBottom: 15, marginLeft: 4 }}>
-              Share this .udmplan file to others via email or social media.
+              Opens the share sheet — send via email, Messages, Drive, or "Save to device".
             </Text>
 
             {Platform.OS === 'android' && (
@@ -680,7 +712,7 @@ export default function PersonalizePlan() {
                   Save to device folder…
                 </Button>
                 <Text style={{ color: '#888', fontSize: 12, marginBottom: 15, marginLeft: 4 }}>
-                  Pick any folder on your device (Downloads, Documents, etc.) and save the file in local storage.
+                  Pick any folder on your device (Downloads, Documents, etc.) and save the file there directly.
                 </Text>
               </>
             )}
@@ -697,7 +729,7 @@ export default function PersonalizePlan() {
               Copy shareable code
             </Button>
             <Text style={{ color: '#888', fontSize: 12, marginBottom: 5, marginLeft: 4 }}>
-              Copies a compact code to your clipboard. Paste it into any chat recipient pastes it into "Import Custom Plan".
+              Copies a compact code to your clipboard. Paste it into any chat — recipient pastes it into "Import Custom Plan".
             </Text>
           </View>
         </View>

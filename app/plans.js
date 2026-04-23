@@ -11,6 +11,7 @@ import {
   listImportedPlans,
   saveImportedPlan,
   deleteImportedPlan,
+  renameImportedPlan,
   envelopeFromJson,
   envelopeFromShareString,
 } from '../utils/planStorage';
@@ -101,6 +102,12 @@ export default function PlansViewer() {
   const [codePasteText, setCodePasteText] = useState('');
   const [codePasteVisible, setCodePasteVisible] = useState(false);
   const [importBusy, setImportBusy] = useState(false);
+
+  // Rename modal state
+  const [renameModalVisible, setRenameModalVisible] = useState(false);
+  const [renameTargetId, setRenameTargetId] = useState(null);
+  const [renameText, setRenameText] = useState('');
+  const [renameBusy, setRenameBusy] = useState(false);
 
   const refreshImportedPlans = useCallback(async () => {
     try {
@@ -317,43 +324,94 @@ export default function PlansViewer() {
     );
   };
 
-  const renderImportedCard = (meta) => (
-    <Card key={meta.id} style={[styles.card, { borderLeftWidth: 4, borderLeftColor: '#A5093E' }]}>
-      <Card.Content style={{ paddingRight: 4 }}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-          <View style={{ flex: 1, paddingRight: 8 }}>
-            <Text variant="titleMedium" style={styles.planTitle} numberOfLines={1}>
-              {meta.name}
-            </Text>
-            {meta.program && meta.program !== meta.name ? (
-              <Text variant="bodySmall" style={{ color: '#666' }} numberOfLines={1}>
-                {meta.program}
+  // Open rename dialog pre-filled with current name.
+  const openRenameModal = (meta) => {
+    setRenameTargetId(meta.id);
+    setRenameText(meta.name || '');
+    setRenameModalVisible(true);
+  };
+
+  const confirmRename = async () => {
+    const next = (renameText || '').trim();
+    if (!next) {
+      Alert.alert('Name required', 'Please enter a name for this plan.');
+      return;
+    }
+    if (!renameTargetId) {
+      setRenameModalVisible(false);
+      return;
+    }
+    setRenameBusy(true);
+    try {
+      await renameImportedPlan(renameTargetId, next);
+      await refreshImportedPlans();
+      setRenameModalVisible(false);
+      setRenameTargetId(null);
+      setRenameText('');
+    } catch (e) {
+      console.error('Rename failed:', e);
+      Alert.alert('Error', 'Could not rename plan.');
+    } finally {
+      setRenameBusy(false);
+    }
+  };
+
+  const renderImportedCard = (meta) => {
+    const importedDate = new Date(meta.importedAt);
+    const importedStr = importedDate.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })
+                      + ' · ' + importedDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    // Short suffix from the generated id (strip prefix 'imp_<timestamp>_<random>')
+    const shortId = (meta.id || '').split('_').pop()?.slice(0, 6) || '';
+
+    return (
+      <Card key={meta.id} style={[styles.card, { borderLeftWidth: 4, borderLeftColor: '#A5093E' }]}>
+        <Card.Content style={{ paddingRight: 4 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <View style={{ flex: 1, paddingRight: 8 }}>
+              <Text variant="titleMedium" style={styles.planTitle} numberOfLines={1}>
+                {meta.name}
               </Text>
-            ) : null}
-            <Text variant="bodySmall" style={{ color: '#999', marginTop: 2 }}>
-              Imported {new Date(meta.importedAt).toLocaleDateString()}
-            </Text>
+              {meta.program && meta.program !== meta.name ? (
+                <Text variant="bodySmall" style={{ color: '#666' }} numberOfLines={1}>
+                  {meta.program}
+                </Text>
+              ) : null}
+              <Text variant="bodySmall" style={{ color: '#999', marginTop: 2 }}>
+                Imported {importedStr}
+                {shortId ? ` · ID ${shortId}` : ''}
+              </Text>
+            </View>
+            <View style={{ flexDirection: 'row' }}>
+              <IconButton
+                icon="pencil-outline"
+                iconColor="#002d72"
+                size={22}
+                onPress={() => openRenameModal(meta)}
+                style={{ margin: 0 }}
+              />
+              <IconButton
+                icon="delete-outline"
+                iconColor="#A5093E"
+                size={22}
+                onPress={() => handleDeleteImported(meta)}
+                style={{ margin: 0 }}
+              />
+            </View>
           </View>
-          <IconButton
-            icon="delete-outline"
-            iconColor="#A5093E"
-            size={22}
-            onPress={() => handleDeleteImported(meta)}
-          />
-        </View>
-      </Card.Content>
-      <Card.Actions style={{ justifyContent: 'flex-start', paddingLeft: 10 }}>
-        <Button
-          mode="text"
-          icon="eye"
-          textColor="#002d72"
-          onPress={() => router.push({ pathname: '/per_plan', params: { import_id: meta.id } })}
-        >
-          Open Plan
-        </Button>
-      </Card.Actions>
-    </Card>
-  );
+        </Card.Content>
+        <Card.Actions style={{ justifyContent: 'flex-start', paddingLeft: 10 }}>
+          <Button
+            mode="text"
+            icon="eye"
+            textColor="#002d72"
+            onPress={() => router.push({ pathname: '/per_plan', params: { import_id: meta.id } })}
+          >
+            Open Plan
+          </Button>
+        </Card.Actions>
+      </Card>
+    );
+  };
 
   // --- UI RENDERER FOR EACH CARD ---
   const renderPlanCard = ({ item: plan }) => (
@@ -633,6 +691,55 @@ export default function PlansViewer() {
                 disabled={importBusy || !codePasteText.trim()}
               >
                 Import
+              </Button>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* --- RENAME PLAN MODAL --- */}
+      <Modal visible={renameModalVisible} animationType="fade" transparent={true} onRequestClose={() => !renameBusy && setRenameModalVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+              <Text variant="titleLarge" style={{ fontWeight: 'bold', color: '#002d72' }}>Rename Plan</Text>
+              <IconButton icon="close" size={20} onPress={() => !renameBusy && setRenameModalVisible(false)} />
+            </View>
+            <Text style={{ color: '#666', marginBottom: 15 }}>
+              Give this plan a name that makes sense to you.
+            </Text>
+
+            <TextInput
+              mode="outlined"
+              label="Plan name"
+              value={renameText}
+              onChangeText={setRenameText}
+              activeOutlineColor="#002d72"
+              style={{ backgroundColor: '#fff', marginBottom: 15 }}
+              maxLength={60}
+              autoFocus
+              disabled={renameBusy}
+              right={renameText ? <TextInput.Icon icon="close" onPress={() => setRenameText('')} /> : null}
+            />
+
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 10 }}>
+              <Button
+                mode="outlined"
+                textColor="#666"
+                style={{ borderColor: '#ccc' }}
+                onPress={() => { setRenameModalVisible(false); setRenameTargetId(null); setRenameText(''); }}
+                disabled={renameBusy}
+              >
+                Cancel
+              </Button>
+              <Button
+                mode="contained"
+                buttonColor="#002d72"
+                onPress={confirmRename}
+                loading={renameBusy}
+                disabled={renameBusy || !renameText.trim()}
+              >
+                Save
               </Button>
             </View>
           </View>
