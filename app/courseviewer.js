@@ -913,8 +913,8 @@ const applyFilters = () => {
                   
                   
                   beginAgendaAt={540}  
-                  endAgendaAt={1140}  
-                  hoursInDisplay={10}  
+                  endAgendaAt={1440}  
+                  hoursInDisplay={15}  
                  
 
                   headerTextStyle={{ color: '#333', fontWeight: 'bold', fontSize: 12 }} 

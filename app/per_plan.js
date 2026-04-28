@@ -306,6 +306,378 @@ export default function PersonalizePlan() {
     return n || plan?.program || 'Degree Plan';
   };
 
+  // --- BUILD HTML FOR PDF ---
+  // Pure function. Takes the hydrated plan object and returns a styled HTML
+  // string ready for expo-print. Colors mirror the in-app palette (see
+  // getTitleColor / getStatusColor at the top of this file) so a printed
+  // plan looks familiar to anyone who's used the app.
+  const buildPlanHtml = (planObj, chosenName) => {
+    const esc = (s) => String(s ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/&amp;amp;/g, '&amp;'); // Un-double-escape the &amp; that comes from the API
+
+    const headerColorFor = (level) => ({
+      Freshman: '#99d24d', Sophomore: '#5dd4ff', Junior: '#e8bcb4',
+      Senior: '#b8a4c4', Graduate: '#b5ebf2',
+    }[level] || '#e2e8f0');
+
+    const statusColorFor = (status) => {
+      switch ((status || '').toLowerCase()) {
+        case 'planned': return '#ffeba8';
+        case 'in progress': return '#a5daff';
+        case 'completed': return '#b6ffbc';
+        case 'failed': return '#ffbdc6';
+        case 'substituted': return '#f7c2ff';
+        case 'waived': return '#d7ffaa';
+        case 'transferred': return '#9fffe2';
+        default: return '#ffffff';
+      }
+    };
+
+    const statusLabelFor = (status) => {
+      const s = (status || '').toLowerCase();
+      if (!s) return '';
+      return s.charAt(0).toUpperCase() + s.slice(1);
+    };
+
+    const renderCourse = (c) => {
+      const code = c.subject === 'Elective' ? 'Elective' : `${esc(c.subject || '')} ${esc(c.number || '')}`.trim();
+      const name = esc((c.name || '').replace(/&amp;/g, '&'));
+      const credits = c.credits ?? 0;
+      const statusLabel = statusLabelFor(c.status);
+      const bg = statusColorFor(c.status);
+      const badge = statusLabel
+        ? `<span class="badge">${esc(statusLabel)}</span>`
+        : '';
+      const notes = c.notes
+        ? `<div class="note">📝 ${esc(c.notes)}</div>`
+        : '';
+      return `
+        <div class="course" style="background:${bg}">
+          <div class="course-head">
+            <span class="code">${code}</span>
+            <span class="credits">${credits} cr</span>
+          </div>
+          <div class="course-name">${name}${badge ? ' ' + badge : ''}</div>
+          ${notes}
+        </div>`;
+    };
+
+    const renderGroup = (group) => {
+      // group.courses is [[option1_courses], [option2_courses], ...]
+      const orGroups = (group.courses || []).map(orGroup => {
+        const inner = (orGroup || []).map(renderCourse).join('');
+        return `<div class="or-option">${inner}</div>`;
+      });
+      return `
+        <div class="or-group">
+          <div class="or-label">Choose one:</div>
+          ${orGroups.join('<div class="or-separator">— or —</div>')}
+        </div>`;
+    };
+
+    const semesters = (planObj?.plan?.semesters || []).filter(s => s.term !== 'd');
+    const semesterHtml = semesters.map(sem => {
+      const headerColor = headerColorFor(sem.level);
+      const courseHtml = (sem.courses || []).map(c => {
+        return c.type === 'group' ? renderGroup(c) : renderCourse(c);
+      }).join('');
+      // Compute per-semester credit total (sum non-group; for groups, take the first option)
+      let semCredits = 0;
+      (sem.courses || []).forEach(c => {
+        if (c.type === 'group') {
+          const first = c.courses?.[0]?.[0];
+          if (first) semCredits += Number(first.credits || 0);
+        } else {
+          semCredits += Number(c.credits || 0);
+        }
+      });
+      return `
+        <section class="semester">
+          <div class="semester-head" style="background:${headerColor}">
+            <span class="sem-title">${esc(sem.level || '')} — ${esc(sem.term || '')}</span>
+            <span class="sem-credits">${semCredits} cr</span>
+          </div>
+          <div class="semester-body">
+            ${courseHtml || '<div class="empty">No courses</div>'}
+          </div>
+        </section>`;
+    }).join('');
+
+    const program = esc(planObj?.program || 'Degree Plan');
+    const minor = planObj?.minor ? `<div class="minor">Minor: ${esc(planObj.minor)}</div>` : '';
+    const exportedOn = new Date().toLocaleDateString([], { year: 'numeric', month: 'long', day: 'numeric' });
+    const fileTitle = esc(chosenName || program);
+
+    return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>${fileTitle}</title>
+<style>
+  @page { size: letter; margin: 0.5in; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    color: #222;
+    margin: 0;
+    padding: 0;
+    font-size: 10.5pt;
+    line-height: 1.35;
+  }
+  header {
+    border-bottom: 3px solid #A5093E;
+    padding-bottom: 10px;
+    margin-bottom: 16px;
+  }
+  h1 {
+    color: #A5093E;
+    font-size: 20pt;
+    margin: 0 0 4px 0;
+  }
+  .program { color: #555; font-size: 11pt; margin-bottom: 2px; }
+  .minor { color: #555; font-size: 10pt; font-style: italic; }
+  .meta { color: #888; font-size: 9pt; margin-top: 6px; }
+  .semester { margin-bottom: 14px; page-break-inside: avoid; }
+  .semester-head {
+    padding: 6px 10px;
+    border-radius: 4px 4px 0 0;
+    font-weight: 700;
+    color: #111;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .sem-title { font-size: 11.5pt; }
+  .sem-credits { font-size: 10pt; opacity: 0.8; }
+  .semester-body {
+    border: 1px solid #ddd;
+    border-top: none;
+    border-radius: 0 0 4px 4px;
+    padding: 4px;
+  }
+  .course {
+    border: 1px solid #d8d8d8;
+    border-radius: 3px;
+    padding: 6px 8px;
+    margin: 4px 0;
+    page-break-inside: avoid;
+  }
+  .course-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+  .code { font-weight: 700; color: #A5093E; font-size: 10.5pt; }
+  .credits { color: #444; font-size: 9.5pt; font-weight: 600; }
+  .course-name { color: #222; margin-top: 2px; }
+  .badge {
+    display: inline-block;
+    background: #fff;
+    border: 1px solid #999;
+    border-radius: 10px;
+    padding: 1px 7px;
+    font-size: 8.5pt;
+    color: #333;
+    margin-left: 4px;
+    font-weight: 600;
+  }
+  .note {
+    font-size: 9pt;
+    color: #555;
+    margin-top: 3px;
+    font-style: italic;
+  }
+  .or-group {
+    background: #f6f6f6;
+    border: 1px dashed #bbb;
+    border-radius: 3px;
+    padding: 6px;
+    margin: 4px 0;
+  }
+  .or-label {
+    font-size: 9pt;
+    font-weight: 700;
+    color: #A5093E;
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .or-option .course { margin: 2px 0; }
+  .or-separator {
+    text-align: center;
+    color: #888;
+    font-size: 9pt;
+    font-style: italic;
+    padding: 2px 0;
+  }
+  .empty { padding: 8px; color: #999; font-style: italic; text-align: center; }
+  footer {
+    margin-top: 18px;
+    padding-top: 10px;
+    border-top: 1px solid #ddd;
+    text-align: center;
+    color: #999;
+    font-size: 8.5pt;
+  }
+</style>
+</head>
+<body>
+  <header>
+    <h1>${fileTitle}</h1>
+    <div class="program">${program}</div>
+    ${minor}
+    <div class="meta">Exported ${exportedOn} · UDM Advisor</div>
+  </header>
+  ${semesterHtml || '<p>This plan has no semesters.</p>'}
+  <footer>Generated by UDM Advisor · University of Detroit Mercy</footer>
+</body>
+</html>`;
+  };
+
+  // --- EXPORT AS PDF ---
+  // Renders the plan to styled HTML, uses expo-print to produce a PDF, then
+  // copies it to a properly-named file and opens the share sheet. Same
+  // lazy-load pattern as the other export handlers so a missing native
+  // module doesn't take down the screen.
+  const handleExportPDF = async () => {
+    if (!plan || exportBusy) return;
+    setExportBusy(true);
+    try {
+      let Print, File, Paths, Sharing;
+      try {
+        Print = require('expo-print');
+        ({ File, Paths } = require('expo-file-system'));
+        Sharing = require('expo-sharing');
+      } catch (e) {
+        throw new Error('PDF export is not available in this build. Try "Share file…" or "Copy shareable code" instead.');
+      }
+      if (!Print?.printToFileAsync || !File || !Paths) {
+        throw new Error('This Expo build is missing the PDF module. Rebuild the app with `npx expo run:android` to include it.');
+      }
+
+      const chosenName = resolveExportName();
+      const html = buildPlanHtml(plan, chosenName);
+
+      // Step 1: print HTML → PDF (lands in cache with a random filename)
+      const { uri: tmpUri } = await Print.printToFileAsync({ html, base64: false });
+
+      // Step 2: copy to a properly-named file in the document directory so
+      // the share sheet and downstream apps show a nice name.
+      const safe = chosenName
+        .replace(/[^A-Za-z0-9_\- ]/g, '')
+        .trim()
+        .replace(/\s+/g, '_')
+        .slice(0, 40) || 'plan';
+      const filename = `${safe}.pdf`;
+
+      const src = new File(tmpUri);
+      const dest = new File(Paths.document, filename);
+      if (dest.exists) dest.delete();
+      src.copy(dest);
+
+      // Step 3: share it (same pattern as handleExportFile)
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(dest.uri, {
+          mimeType: 'application/pdf',
+          dialogTitle: 'Share your UDM degree plan',
+          UTI: 'com.adobe.pdf',
+        });
+      } else {
+        Alert.alert(
+          'Saved',
+          `PDF saved to:\n${dest.uri}\n\nSharing isn't available on this device, but the file is on disk.`
+        );
+      }
+      setExportModalVisible(false);
+    } catch (e) {
+      console.error('Export PDF error:', e);
+      Alert.alert('PDF export failed', e.message || 'Could not create the PDF.');
+    } finally {
+      setExportBusy(false);
+    }
+  };
+
+  // --- SAVE PDF TO A USER-PICKED FOLDER (Android only, via SAF) ---
+  //
+  // Same pattern as handleExportToFolder but for PDFs. On Android the user
+  // picks a folder (Downloads, Documents, Drive, anywhere), we generate the
+  // PDF, then write it directly to the chosen folder as binary (base64).
+  //
+  // iOS doesn't have an equivalent OS-level folder picker, so this handler
+  // falls back to the share sheet path on non-Android platforms.
+  const handleExportPDFToFolder = async () => {
+    if (!plan || exportBusy) return;
+    if (Platform.OS !== 'android') {
+      return handleExportPDF();
+    }
+    setExportBusy(true);
+    try {
+      let Print, File, Paths, StorageAccessFramework, readAsStringAsync, writeAsStringAsync, EncodingType;
+      try {
+        Print = require('expo-print');
+        ({ File, Paths } = require('expo-file-system'));
+        const legacy = require('expo-file-system/legacy');
+        StorageAccessFramework = legacy.StorageAccessFramework;
+        readAsStringAsync = legacy.readAsStringAsync;
+        writeAsStringAsync = legacy.writeAsStringAsync;
+        EncodingType = legacy.EncodingType;
+      } catch (e) {
+        throw new Error('PDF folder save is not available in this build. Use "Share PDF…" and pick "Save to device" from the share sheet.');
+      }
+      if (!Print?.printToFileAsync || !StorageAccessFramework || !writeAsStringAsync || !readAsStringAsync) {
+        throw new Error('This Expo build is missing PDF or folder-picker support. Rebuild the app to enable it.');
+      }
+
+      const chosenName = resolveExportName();
+      const html = buildPlanHtml(plan, chosenName);
+
+      const safe = chosenName
+        .replace(/[^A-Za-z0-9_\- ]/g, '')
+        .trim()
+        .replace(/\s+/g, '_')
+        .slice(0, 40) || 'plan';
+      const filename = `${safe}.pdf`;
+
+      // Step 1: print HTML → PDF (cache dir)
+      const { uri: tmpUri } = await Print.printToFileAsync({ html, base64: false });
+
+      // Step 2: ask user for a destination folder.
+      const perm = await StorageAccessFramework.requestDirectoryPermissionsAsync();
+      if (!perm.granted) {
+        setExportBusy(false);
+        return;
+      }
+
+      // Step 3: read the generated PDF as base64, then write it into the
+      // SAF-created file as base64. SAF URIs don't work with File.copy()
+      // from the new API, so we go through the legacy read/write as binary.
+      const base64 = await readAsStringAsync(tmpUri, {
+        encoding: EncodingType?.Base64 || 'base64',
+      });
+
+      const destUri = await StorageAccessFramework.createFileAsync(
+        perm.directoryUri,
+        filename,
+        'application/pdf'
+      );
+      await writeAsStringAsync(destUri, base64, {
+        encoding: EncodingType?.Base64 || 'base64',
+      });
+
+      setExportModalVisible(false);
+      Alert.alert('Saved', `"${filename}" was saved to the folder you chose.`);
+    } catch (e) {
+      console.error('Export PDF to folder error:', e);
+      Alert.alert('Save failed', e.message || 'Could not save the PDF to that folder.');
+    } finally {
+      setExportBusy(false);
+    }
+  };
+
   // --- EXPORT AS .udmplan FILE ---
   const handleExportFile = async () => {
     if (!plan || exportBusy) return;
@@ -728,9 +1100,48 @@ export default function PersonalizePlan() {
             >
               Copy shareable code
             </Button>
-            <Text style={{ color: '#888', fontSize: 12, marginBottom: 5, marginLeft: 4 }}>
+            <Text style={{ color: '#888', fontSize: 12, marginBottom: 15, marginLeft: 4 }}>
               Copies a compact code to your clipboard. Paste it into any chat — recipient pastes it into "Import Custom Plan".
             </Text>
+
+            <View style={{ height: 1, backgroundColor: '#e0e0e0', marginVertical: 6 }} />
+            <Text style={{ color: '#555', fontSize: 11, marginBottom: 10, marginLeft: 4, textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: '600' }}>
+              For printing or non-app users
+            </Text>
+
+            <Button
+              mode="contained"
+              icon="file-pdf-box"
+              buttonColor="#002d72"
+              style={{ marginBottom: 10 }}
+              onPress={handleExportPDF}
+              loading={exportBusy}
+              disabled={exportBusy}
+            >
+              Share PDF…
+            </Button>
+            <Text style={{ color: '#888', fontSize: 12, marginBottom: 15, marginLeft: 4 }}>
+              Creates a nicely-formatted PDF and opens the share sheet — email, print, or "Save to device".
+            </Text>
+
+            {Platform.OS === 'android' && (
+              <>
+                <Button
+                  mode="contained"
+                  icon="folder-download-outline"
+                  buttonColor="#002d72"
+                  style={{ marginBottom: 10 }}
+                  onPress={handleExportPDFToFolder}
+                  loading={exportBusy}
+                  disabled={exportBusy}
+                >
+                  Save PDF to device folder…
+                </Button>
+                <Text style={{ color: '#888', fontSize: 12, marginBottom: 5, marginLeft: 4 }}>
+                  Pick any folder on your device (Downloads, Documents, etc.) and save the PDF there directly.
+                </Text>
+              </>
+            )}
           </View>
         </View>
       </Modal>
