@@ -24,7 +24,7 @@ export default function Chatbot() {
   const [messages, setMessages] = useState([
     {
       id: '1',
-      text: `Hello! I'm your UDM Advisor for ${termName || 'this term'}. I have ${courseCount || 'your'} courses loaded for ${subjects ? subjects.replace(/,/g, ', ') : 'your selected subjects'}. Ask me about sections, times, credits, prerequisites, or help planning your schedule!`,
+      text: `Hello! I'm your UDM Advisor for ${termName || 'this term'}. I have ${courseCount || 'your'} sections loaded for ${subjects ? subjects.replace(/,/g, ', ') : 'your selected subjects'}. Ask me about sections, times, credits, prerequisites, or help planning your schedule!`,
       sender: 'bot',
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     }

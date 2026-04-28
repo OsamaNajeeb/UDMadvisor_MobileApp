@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, ScrollView, StyleSheet, Image } from 'react-native';
+import { View, ScrollView, StyleSheet, Image, BackHandler, Platform, Alert } from 'react-native';
 import { Text, Button, Card, Avatar, Appbar, useTheme } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -36,12 +36,44 @@ export default function Dashboard() {
   const theme = useTheme();
   const [isScrolling, setIsScrolling] = useState(false);
 
+  // The "logout" button now exits the app. There is no real auth state to
+  // clear — the previous login screen was a placeholder that just routed
+  // to dashboard — so "logout" is functionally an exit.
+  //
+  // Note: BackHandler.exitApp() works on Android only. iOS forbids apps
+  // from exiting themselves (App Store policy), so we show a hint instead.
+  const handleExit = () => {
+    Alert.alert(
+      'Exit UDM Advisor?',
+      'Close the app and return to your home screen.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Exit',
+          style: 'destructive',
+          onPress: () => {
+            if (Platform.OS === 'android') {
+              BackHandler.exitApp();
+            } else {
+              // iOS path — Apple doesn't allow programmatic exit. Best we
+              // can do is tell the user to use the home gesture/button.
+              Alert.alert(
+                'Press the home gesture',
+                'iOS does not allow apps to close themselves. Swipe up from the bottom (or press the home button) to exit.'
+              );
+            }
+          }
+        }
+      ]
+    );
+  };
+
   return (
     <View style={[styles.container, { paddingBottom: insets.bottom > 0 ? insets.bottom : 20 }]}>
       {/* 1. The Red Header */}
       <Appbar.Header style={{ backgroundColor: "#A5093E"}}>
         <Appbar.Content title="UDM Advisor" color="#fff" />
-        <Appbar.Action icon="logout" color="#fff" onPress={() => router.replace('/')} />
+        <Appbar.Action icon="logout" color="#fff" onPress={handleExit} />
       </Appbar.Header>
 
       <ScrollView 
