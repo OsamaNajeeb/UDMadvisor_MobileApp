@@ -186,35 +186,76 @@ export default function PersonalizePlan() {
   }, [plan_id, year_id, import_id, isImported]);
 
   // --- DEEP-UPDATE HELPERS ---
+  // Update a single course's status using STRUCTURAL SHARING — we only clone
+  // the path from the root down to the changed course, and reuse references
+  // for everything else. This matters a lot on low-memory devices (the
+  // previous JSON.parse(JSON.stringify(prev)) cloned the entire plan on
+  // every tap, which spiked memory and crashed the app after a few changes).
+  //
+  // The plan tree shape is:
+  //   plan.plan.semesters[semIdx].courses[courseIdx]            (regular course)
+  //   plan.plan.semesters[semIdx].courses[courseIdx].courses[orIdx][innerIdx]  (OR-group)
   const updateCourseStatus = useCallback((semIdx, courseIdx, newStatus) => {
     setPlan(prev => {
-      const updated = JSON.parse(JSON.stringify(prev));
-      updated.plan.semesters[semIdx].courses[courseIdx].status = newStatus;
-      return updated;
+      if (!prev) return prev;
+      const semesters = prev.plan.semesters.slice();
+      const sem = { ...semesters[semIdx] };
+      const courses = sem.courses.slice();
+      courses[courseIdx] = { ...courses[courseIdx], status: newStatus };
+      sem.courses = courses;
+      semesters[semIdx] = sem;
+      return { ...prev, plan: { ...prev.plan, semesters } };
     });
   }, []);
 
   const updateGroupCourseStatus = useCallback((semIdx, courseIdx, orIdx, innerIdx, newStatus) => {
     setPlan(prev => {
-      const updated = JSON.parse(JSON.stringify(prev));
-      updated.plan.semesters[semIdx].courses[courseIdx].courses[orIdx][innerIdx].status = newStatus;
-      return updated;
+      if (!prev) return prev;
+      const semesters = prev.plan.semesters.slice();
+      const sem = { ...semesters[semIdx] };
+      const courses = sem.courses.slice();
+      const group = { ...courses[courseIdx] };
+      const orGroups = group.courses.slice();
+      const orGroup = orGroups[orIdx].slice();
+      orGroup[innerIdx] = { ...orGroup[innerIdx], status: newStatus };
+      orGroups[orIdx] = orGroup;
+      group.courses = orGroups;
+      courses[courseIdx] = group;
+      sem.courses = courses;
+      semesters[semIdx] = sem;
+      return { ...prev, plan: { ...prev.plan, semesters } };
     });
   }, []);
 
   const updateCourseNote = useCallback((semIdx, courseIdx, newNote) => {
     setPlan(prev => {
-      const updated = JSON.parse(JSON.stringify(prev));
-      updated.plan.semesters[semIdx].courses[courseIdx].notes = newNote;
-      return updated;
+      if (!prev) return prev;
+      const semesters = prev.plan.semesters.slice();
+      const sem = { ...semesters[semIdx] };
+      const courses = sem.courses.slice();
+      courses[courseIdx] = { ...courses[courseIdx], notes: newNote };
+      sem.courses = courses;
+      semesters[semIdx] = sem;
+      return { ...prev, plan: { ...prev.plan, semesters } };
     });
   }, []);
 
   const updateGroupCourseNote = useCallback((semIdx, courseIdx, orIdx, innerIdx, newNote) => {
     setPlan(prev => {
-      const updated = JSON.parse(JSON.stringify(prev));
-      updated.plan.semesters[semIdx].courses[courseIdx].courses[orIdx][innerIdx].notes = newNote;
-      return updated;
+      if (!prev) return prev;
+      const semesters = prev.plan.semesters.slice();
+      const sem = { ...semesters[semIdx] };
+      const courses = sem.courses.slice();
+      const group = { ...courses[courseIdx] };
+      const orGroups = group.courses.slice();
+      const orGroup = orGroups[orIdx].slice();
+      orGroup[innerIdx] = { ...orGroup[innerIdx], notes: newNote };
+      orGroups[orIdx] = orGroup;
+      group.courses = orGroups;
+      courses[courseIdx] = group;
+      sem.courses = courses;
+      semesters[semIdx] = sem;
+      return { ...prev, plan: { ...prev.plan, semesters } };
     });
   }, []);
 
@@ -1219,7 +1260,7 @@ export default function PersonalizePlan() {
               <IconButton icon="close" size={20} onPress={() => !exportBusy && setExportModalVisible(false)} />
             </View>
             <Text style={{ color: '#666', marginBottom: 15 }}>
-              Give this copy a name so you can tell it apart later, then pick how to share it.
+              You can Export "FileName".UDMplan file or PDF file.
             </Text>
 
             <TextInput
@@ -1234,7 +1275,7 @@ export default function PersonalizePlan() {
               right={exportName ? <TextInput.Icon icon="close" onPress={() => setExportName('')} /> : null}
             />
             <Text style={{ color: '#888', fontSize: 12, marginBottom: 20, marginLeft: 4 }}>
-              Tip: use something specific like "After summer retakes" or "Dr. R's plan" — not just the program name.
+              Using same name will overwrite the exisiting file.
             </Text>
 
             <Button
@@ -1249,7 +1290,7 @@ export default function PersonalizePlan() {
               Share file…
             </Button>
             <Text style={{ color: '#888', fontSize: 12, marginBottom: 15, marginLeft: 4 }}>
-              Opens the share sheet — send via email, Messages, Drive, or "Save to device".
+              You can share the UDMplan file send via email, Messages, Drive, or other distribution platform.
             </Text>
 
             {Platform.OS === 'android' && (
@@ -1266,7 +1307,7 @@ export default function PersonalizePlan() {
                   Save to device folder…
                 </Button>
                 <Text style={{ color: '#888', fontSize: 12, marginBottom: 15, marginLeft: 4 }}>
-                  Pick any folder on your device (Downloads, Documents, etc.) and save the file there directly.
+                  Or you can pick any folder on your device (Downloads, Documents, etc.) and save the UDMplan file there directly.
                 </Text>
               </>
             )}
@@ -1283,13 +1324,13 @@ export default function PersonalizePlan() {
               Copy shareable code
             </Button>
             <Text style={{ color: '#888', fontSize: 12, marginBottom: 15, marginLeft: 4 }}>
-              Copies a compact code to your clipboard. Paste it into any chat — recipient pastes it into "Import Custom Plan".
+              Copies a compact code to your clipboard. Paste it into any chat recipient pastes it into "Import Custom Plan".
             </Text>
 
             <View style={{ height: 1, backgroundColor: '#e0e0e0', marginVertical: 6 }} />
-            <Text style={{ color: '#555', fontSize: 11, marginBottom: 10, marginLeft: 4, textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: '600' }}>
+            {/* <Text style={{ color: '#555', fontSize: 11, marginBottom: 10, marginLeft: 4, textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: '600' }}>
               For printing or non-app users
-            </Text>
+            </Text> */}
 
             <Button
               mode="contained"
@@ -1303,7 +1344,7 @@ export default function PersonalizePlan() {
               Share PDF…
             </Button>
             <Text style={{ color: '#888', fontSize: 12, marginBottom: 15, marginLeft: 4 }}>
-              Creates a nicely-formatted PDF and opens the share sheet — email, print, or "Save to device".
+              Creates a PDF and share it via email, Messages, Drive, or other distribution platform.
             </Text>
 
             {Platform.OS === 'android' && (
@@ -1320,7 +1361,7 @@ export default function PersonalizePlan() {
                   Save PDF to device folder…
                 </Button>
                 <Text style={{ color: '#888', fontSize: 12, marginBottom: 5, marginLeft: 4 }}>
-                  Pick any folder on your device (Downloads, Documents, etc.) and save the PDF there directly.
+                  Or you can pick any folder on your device (Downloads, Documents, etc.) and save the PDF there directly.
                 </Text>
               </>
             )}

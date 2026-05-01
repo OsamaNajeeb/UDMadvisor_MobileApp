@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { View, StyleSheet, FlatList, Modal, Alert, ActivityIndicator, ScrollView } from 'react-native';
 import { Text, Appbar, Card, Button, TextInput, Divider, List, IconButton } from 'react-native-paper';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -170,11 +170,26 @@ export default function PlansViewer() {
 
 
   // 3. The Live Filter Engine
-  const filteredPlans = plans.filter(plan => {
-    const matchProgram = programFilter === '' || (plan.program || '').toLowerCase() === programFilter.toLowerCase();
-    const matchYear = entryYear === '' || (plan.year || '').toString().includes(entryYear);
-    return matchProgram && matchYear;
-  });
+  // Memoized so it only recomputes when plans/programFilter/entryYear change.
+  // Without this, every unrelated state change (typing in search, opening
+  // a modal, focus changes) re-filters the entire catalog and produces a
+  // new array reference — which churns memory on low-end devices.
+  const filteredPlans = useMemo(() => {
+    return plans.filter(plan => {
+      const matchProgram = programFilter === '' || (plan.program || '').toLowerCase() === programFilter.toLowerCase();
+      const matchYear = entryYear === '' || (plan.year || '').toString().includes(entryYear);
+      return matchProgram && matchYear;
+    });
+  }, [plans, programFilter, entryYear]);
+
+  // Pre-filter the program dropdown list. Same reasoning: keystrokes in
+  // the search bar don't need to re-walk all 50+ programs unless the
+  // search text or list itself changes.
+  const filteredProgramOptions = useMemo(() => {
+    const q = (searchProgramText || '').toLowerCase();
+    if (!q) return PROGRAM_LIST;
+    return PROGRAM_LIST.filter(p => p.toLowerCase().includes(q));
+  }, [searchProgramText]);
 
   // 4. Handle Opening the Modal
   const handleViewPlan = (plan) => {
@@ -500,26 +515,19 @@ export default function PlansViewer() {
                   
                   <Divider />
 
-                  {PROGRAM_LIST.map((prog, index) => {
-                    // THE MAGIC: Hide this option if it doesn't match what they are typing!
-                    if (searchProgramText && !prog.toLowerCase().includes(searchProgramText.toLowerCase())) {
-                      return null; 
-                    }
-
-                    return (
-                      <List.Item
-                        key={index}
-                        title={prog}
-                        titleNumberOfLines={2} // Allows long titles like the 3+3 programs to wrap nicely
-                        onPress={() => {
-                          // When clicked, lock in the search!
-                          setProgramFilter(prog);
-                          setSearchProgramText(prog);
-                          setShowProgramList(false);
-                        }}
-                      />
-                    );
-                  })}
+                  {filteredProgramOptions.map((prog, index) => (
+                    <List.Item
+                      key={index}
+                      title={prog}
+                      titleNumberOfLines={2} // Allows long titles like the 3+3 programs to wrap nicely
+                      onPress={() => {
+                        // When clicked, lock in the search!
+                        setProgramFilter(prog);
+                        setSearchProgramText(prog);
+                        setShowProgramList(false);
+                      }}
+                    />
+                  ))}
                 </ScrollView>
               </View>
             )}
@@ -612,9 +620,9 @@ export default function PlansViewer() {
               <Text variant="titleLarge" style={{ fontWeight: 'bold', color: '#A5093E' }}>Import Custom Plan</Text>
               <IconButton icon="close" size={20} onPress={() => setImportModalVisible(false)} />
             </View>
-            <Text style={{ color: '#666', marginBottom: 20 }}>
-              Bring in a plan someone else exported from UDM Advisor.
-            </Text>
+            {/* <Text style={{ color: '#666', marginBottom: 20 }}>
+              
+            </Text> */}
 
             <Button
               mode="contained"
@@ -628,7 +636,7 @@ export default function PlansViewer() {
               From a .udmplan file
             </Button>
             <Text style={{ color: '#888', fontSize: 12, marginBottom: 15, marginLeft: 4 }}>
-              Pick a file you received via email, Drive, Files, etc.
+              Import the UDMplan from your local device.
             </Text>
 
             <Button
@@ -642,7 +650,7 @@ export default function PlansViewer() {
               Paste a shareable code
             </Button>
             <Text style={{ color: '#888', fontSize: 12, marginBottom: 5, marginLeft: 4 }}>
-              Paste a code someone shared with you (starts with "UDM1:").
+              Paste a compact code from the Personalized Plan.
             </Text>
           </View>
         </View>
