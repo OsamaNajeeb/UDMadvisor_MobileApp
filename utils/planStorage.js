@@ -199,3 +199,35 @@ export async function renameImportedPlan(id, newName) {
   index[i] = { ...index[i], name: newName };
   await writeIndex(index);
 }
+
+/**
+ * Update an EXISTING imported plan in-place. Replaces the stored envelope
+ * with `env` and refreshes index metadata (name, program, importedAt).
+ * Used when the user edits an imported plan and re-exports it — keeps
+ * AsyncStorage in sync with the file they just wrote, so the next time
+ * they open the plan from Plan Viewer they see their edits.
+ *
+ * Does nothing if `id` doesn't exist in the index — caller should fall
+ * back to saveImportedPlan in that case.
+ */
+export async function updateImportedPlan(id, env) {
+  validateEnvelope(env);
+  const index = await readIndex();
+  const i = index.findIndex((m) => m.id === id);
+  if (i === -1) return false;
+
+  // Refresh the index entry. We deliberately preserve the original `id`
+  // and `importedAt` is updated to "now" so this entry sorts to the top
+  // of the list (most-recently-touched first), which matches the user's
+  // mental model: "I just edited this; show it first."
+  index[i] = {
+    ...index[i],
+    name: env.name || index[i].name,
+    program: env.plan?.program || index[i].program,
+    importedAt: new Date().toISOString(),
+  };
+
+  await AsyncStorage.setItem(blobKey(id), JSON.stringify(env));
+  await writeIndex(index);
+  return true;
+}

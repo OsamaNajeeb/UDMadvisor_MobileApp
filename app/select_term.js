@@ -12,8 +12,8 @@ import courseCodesData from '../store/unique_course_codes.json';
 // --- NEW: Import your unique attributes JSON ---
 import attributeCodesData from '../store/unique_section_attribute_codes.json'; 
 
-const API_BASE_URL = "https://udmadvisor-server.onrender.com";
-// const API_BASE_URL = "http://10.0.53.168:5000";
+// const API_BASE_URL = "https://udmadvisor-server.onrender.com";
+const API_BASE_URL = "http://10.0.53.168:5000";
 
 const SubjectCheckbox = React.memo(({ code, name, isChecked, onToggle }) => {
   return (

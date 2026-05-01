@@ -432,8 +432,8 @@ const handleRefresh = async () => {
     setIsRefreshing(true);
     
     try {
-      const apiUrl = `https://udmadvisor-server.onrender.com/api/fetch_courses?term_name=${encodeURIComponent(termName)}&term_code=${termCode}&refresh_course_data=true`;
-      // const apiUrl = `https://10.0.53.168/api/fetch_courses?term_name=${encodeURIComponent(termName)}&term_code=${termCode}&refresh_course_data=true`;
+      // const apiUrl = `https://udmadvisor-server.onrender.com/api/fetch_courses?term_name=${encodeURIComponent(termName)}&term_code=${termCode}&refresh_course_data=true`;
+      const apiUrl = `https://10.0.53.168/api/fetch_courses?term_name=${encodeURIComponent(termName)}&term_code=${termCode}&refresh_course_data=true`;
       const response = await fetch(apiUrl);
       
       // 1. Read the raw response text first (in case the Python server crashed entirely and sent HTML)

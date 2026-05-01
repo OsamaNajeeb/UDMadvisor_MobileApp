@@ -10,6 +10,8 @@ import {
   envelopeToJson,
   envelopeToShareString,
   loadImportedPlan,
+  renameImportedPlan,
+  updateImportedPlan,
 } from '../utils/planStorage';
 
 const API_BASE_URL = "https://scraper2-nzef.onrender.com";
@@ -117,8 +119,15 @@ export default function PersonalizePlan() {
         if (!env) throw new Error("Imported plan not found. It may have been deleted.");
         // envelope wraps the original plan under env.plan
         const raw = env.plan;
+        // Prefer the envelope-level "name" (which is the user-chosen display
+        // name, settable at import time and via export-modal rename) over
+        // the raw program field. This is what the user expects to see in
+        // the header and have prefilled into the export modal. Fall back
+        // to raw.program for envelopes saved before names existed.
+        const displayProgram = (env.name && env.name.trim()) || raw.program || 'Imported Plan';
         setPlan({
           ...raw,
+          program: displayProgram,
           plan: {
             ...raw.plan,
             semesters: hydrate(raw),
@@ -304,6 +313,61 @@ export default function PersonalizePlan() {
   const resolveExportName = () => {
     const n = (exportName || '').trim();
     return n || plan?.program || 'Degree Plan';
+  };
+
+  // After a successful export, if this is an IMPORTED plan AND the user
+  // typed a new name in the export modal, persist that name as the plan's
+  // display name. This is what makes the on-screen header update to match
+  // the chosen name. We do nothing for catalog plans — those keep their
+  // original program title regardless of what was typed.
+  const applyRenameIfImported = async (chosenName) => {
+    if (!isImported || !import_id) return;
+    const trimmed = (chosenName || '').trim();
+    if (!trimmed) return;
+    if (trimmed === (plan?.program || '')) return; // no-op
+    try {
+      await renameImportedPlan(import_id, trimmed);
+      // Also update local state so the header reflects the change without
+      // a screen reload. Non-mutating: rebuild the plan object.
+      setPlan(prev => prev ? { ...prev, program: trimmed } : prev);
+    } catch (e) {
+      console.warn('Failed to persist plan rename:', e);
+      // Don't show an alert — the export itself succeeded; rename is
+      // a bonus side-effect.
+    }
+  };
+
+  // Resolve + (fire-and-forget) persist the new name if applicable.
+  // Every export handler should call this exactly once.
+  const resolveAndCommitName = () => {
+    const name = resolveExportName();
+    // Don't await — the export shouldn't block on AsyncStorage writes.
+    applyRenameIfImported(name);
+    return name;
+  };
+
+  // After every successful export, if this is an imported plan, write the
+  // freshly-built envelope back to AsyncStorage. This keeps the imported
+  // plan in Plan Viewer in sync with the file the user just exported, so
+  // the next time they open it, edits are there — no manual re-import.
+  //
+  // Catalog plans (no import_id) skip this — there's no AsyncStorage entry
+  // to update for them.
+  //
+  // Fire-and-forget; failure is logged but never blocks the export. The
+  // file write succeeded, which is the user's primary intent; the cache
+  // sync is a convenience.
+  const persistImportedSnapshotIfNeeded = (env) => {
+    if (!isImported || !import_id) return;
+    updateImportedPlan(import_id, env)
+      .then(ok => {
+        if (!ok) {
+          console.warn('[persist] updateImportedPlan returned false (id missing in index)');
+        }
+      })
+      .catch(e => {
+        console.warn('[persist] failed to sync imported plan:', e);
+      });
   };
 
   // --- BUILD HTML FOR PDF ---
@@ -559,7 +623,7 @@ export default function PersonalizePlan() {
         throw new Error('This Expo build is missing the PDF module. Rebuild the app with `npx expo run:android` to include it.');
       }
 
-      const chosenName = resolveExportName();
+      const chosenName = resolveAndCommitName();
       const html = buildPlanHtml(plan, chosenName);
 
       // Step 1: print HTML → PDF (lands in cache with a random filename)
@@ -616,7 +680,7 @@ export default function PersonalizePlan() {
     }
     setExportBusy(true);
     try {
-      let Print, File, Paths, StorageAccessFramework, readAsStringAsync, writeAsStringAsync, EncodingType;
+      let Print, File, Paths, StorageAccessFramework, readAsStringAsync, writeAsStringAsync, deleteAsync, EncodingType;
       try {
         Print = require('expo-print');
         ({ File, Paths } = require('expo-file-system'));
@@ -624,15 +688,16 @@ export default function PersonalizePlan() {
         StorageAccessFramework = legacy.StorageAccessFramework;
         readAsStringAsync = legacy.readAsStringAsync;
         writeAsStringAsync = legacy.writeAsStringAsync;
+        deleteAsync = legacy.deleteAsync;
         EncodingType = legacy.EncodingType;
       } catch (e) {
         throw new Error('PDF folder save is not available in this build. Use "Share PDF…" and pick "Save to device" from the share sheet.');
       }
-      if (!Print?.printToFileAsync || !StorageAccessFramework || !writeAsStringAsync || !readAsStringAsync) {
+      if (!Print?.printToFileAsync || !StorageAccessFramework || !writeAsStringAsync || !readAsStringAsync || !deleteAsync) {
         throw new Error('This Expo build is missing PDF or folder-picker support. Rebuild the app to enable it.');
       }
 
-      const chosenName = resolveExportName();
+      const chosenName = resolveAndCommitName();
       const html = buildPlanHtml(plan, chosenName);
 
       const safe = chosenName
@@ -652,6 +717,25 @@ export default function PersonalizePlan() {
         return;
       }
 
+      // Check for an existing same-named PDF in the chosen folder. If
+      // present, confirm with the user and delete it before creating the
+      // new file (so SAF doesn't auto-rename to "Name (1).pdf").
+      const existingUri = await findExistingFileInSafFolder(
+        StorageAccessFramework, perm.directoryUri, filename
+      );
+      if (existingUri) {
+        const ok = await confirmOverwrite(filename);
+        if (!ok) {
+          setExportBusy(false);
+          return;
+        }
+        try {
+          await deleteAsync(existingUri, { idempotent: true });
+        } catch (e) {
+          console.warn('Could not delete existing PDF before replace; SAF may suffix:', e);
+        }
+      }
+
       // Step 3: read the generated PDF as base64, then write it into the
       // SAF-created file as base64. SAF URIs don't work with File.copy()
       // from the new API, so we go through the legacy read/write as binary.
@@ -669,7 +753,10 @@ export default function PersonalizePlan() {
       });
 
       setExportModalVisible(false);
-      Alert.alert('Saved', `"${filename}" was saved to the folder you chose.`);
+      Alert.alert(
+        existingUri ? 'Replaced' : 'Saved',
+        `"${filename}" was ${existingUri ? 'updated' : 'saved'} in the folder you chose.`
+      );
     } catch (e) {
       console.error('Export PDF to folder error:', e);
       Alert.alert('Save failed', e.message || 'Could not save the PDF to that folder.');
@@ -698,8 +785,9 @@ export default function PersonalizePlan() {
         throw new Error('This Expo build does not support file saving. Try "Copy shareable code" instead, or rebuild the app.');
       }
 
-      const chosenName = resolveExportName();
+      const chosenName = resolveAndCommitName();
       const env = buildEnvelope(plan, { name: chosenName });
+      persistImportedSnapshotIfNeeded(env);
       const json = envelopeToJson(env);
 
       // Make a safe filename from the chosen name
@@ -743,6 +831,68 @@ export default function PersonalizePlan() {
   // destination (Downloads, Documents, Drive, anywhere they have write
   // access). On iOS this is unsupported by the OS — apps don't get to write
   // to arbitrary paths — so we just fall back to the share sheet.
+  // Helper: given a granted SAF folder URI and a filename, look inside the
+  // folder for a file with that name. Returns the existing file's SAF URI
+  // if found, or null if not.
+  //
+  // Matches in two passes: first the literal target ("MyPlan.udmplan"),
+  // then a legacy ".json"-suffixed variant ("MyPlan.udmplan.json"). The
+  // legacy variant exists because older versions of this app passed an
+  // 'application/json' MIME type to SAF, and SAF appends a canonical
+  // extension when the filename's extension doesn't match the MIME's. New
+  // saves use 'application/octet-stream' and stay correctly named.
+  //
+  // Boundary check (chars before/after the matched substring) avoids
+  // false matches like "MyPlan.udmplan (1).json" matching against
+  // "MyPlan.udmplan" — that's a different file and shouldn't overwrite.
+  const findExistingFileInSafFolder = async (StorageAccessFramework, directoryUri, filename) => {
+    try {
+      const entries = await StorageAccessFramework.readDirectoryAsync(directoryUri);
+      const lcTarget = filename.toLowerCase();
+      const lcTargetWithJson = lcTarget + '.json';
+
+      const tryMatch = (lcDecoded, needle) => {
+        const idx = lcDecoded.lastIndexOf(needle);
+        if (idx === -1) return false;
+        const before = idx === 0 ? '' : lcDecoded[idx - 1];
+        const afterPos = idx + needle.length;
+        const after = afterPos >= lcDecoded.length ? '' : lcDecoded[afterPos];
+        const goodBefore = before === '' || before === '/' || before === ':';
+        const goodAfter = after === '' || after === '?' || after === '#';
+        return goodBefore && goodAfter;
+      };
+
+      for (const uri of entries || []) {
+        let decoded;
+        try { decoded = decodeURIComponent(uri); }
+        catch { decoded = uri; }
+        const lcDecoded = decoded.toLowerCase();
+        if (tryMatch(lcDecoded, lcTarget) || tryMatch(lcDecoded, lcTargetWithJson)) {
+          return uri;
+        }
+      }
+    } catch (e) {
+      // readDirectoryAsync rarely fails on a granted folder, but if it does
+      // we treat it as "no existing file" rather than blocking the save.
+      console.warn('Could not list SAF folder; will create instead of overwriting:', e);
+    }
+    return null;
+  };
+
+  // Helper: prompt the user to confirm overwriting an existing file.
+  // Resolves true if user confirms, false on cancel.
+  const confirmOverwrite = (filename) => new Promise((resolve) => {
+    Alert.alert(
+      'Replace existing file?',
+      `"${filename}" already exists in that folder. Replace it with the current plan?`,
+      [
+        { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+        { text: 'Replace', style: 'destructive', onPress: () => resolve(true) },
+      ],
+      { cancelable: true, onDismiss: () => resolve(false) }
+    );
+  });
+
   const handleExportToFolder = async () => {
     if (!plan || exportBusy) return;
     if (Platform.OS !== 'android') {
@@ -752,20 +902,22 @@ export default function PersonalizePlan() {
     setExportBusy(true);
     try {
       // Lazy-load — same reasoning as handleExportFile.
-      let StorageAccessFramework, writeAsStringAsync;
+      let StorageAccessFramework, writeAsStringAsync, deleteAsync;
       try {
         const legacy = require('expo-file-system/legacy');
         StorageAccessFramework = legacy.StorageAccessFramework;
         writeAsStringAsync = legacy.writeAsStringAsync;
+        deleteAsync = legacy.deleteAsync;
       } catch (e) {
         throw new Error('Folder picker is not available in this build. Use "Share file…" and pick "Save to device" from the share sheet.');
       }
-      if (!StorageAccessFramework || !writeAsStringAsync) {
+      if (!StorageAccessFramework || !writeAsStringAsync || !deleteAsync) {
         throw new Error('This Expo build does not support the folder picker. Use "Share file…" instead.');
       }
 
-      const chosenName = resolveExportName();
+      const chosenName = resolveAndCommitName();
       const env = buildEnvelope(plan, { name: chosenName });
+      persistImportedSnapshotIfNeeded(env);
       const json = envelopeToJson(env);
 
       const safe = chosenName
@@ -783,15 +935,44 @@ export default function PersonalizePlan() {
         return;
       }
 
+      // Check whether the same filename already exists in that folder.
+      // If it does, ask the user before replacing it. Without this step,
+      // SAF would auto-rename the new file to "Name (1).udmplan", which
+      // is exactly the duplication the user is trying to avoid.
+      const existingUri = await findExistingFileInSafFolder(
+        StorageAccessFramework, perm.directoryUri, filename
+      );
+      if (existingUri) {
+        const ok = await confirmOverwrite(filename);
+        if (!ok) {
+          setExportBusy(false);
+          return;
+        }
+        // Delete first so the new file gets the exact name (no suffix).
+        try {
+          await deleteAsync(existingUri, { idempotent: true });
+        } catch (e) {
+          console.warn('Could not delete existing file before replace; SAF may suffix:', e);
+        }
+      }
+
       const fileUri = await StorageAccessFramework.createFileAsync(
         perm.directoryUri,
         filename,
-        'application/json'
+        // 'application/octet-stream' (NOT 'application/json'). SAF appends
+        // a canonical extension when the MIME type's known extension
+        // doesn't match the filename's. Passing JSON to a .udmplan file
+        // produces "MyPlan.udmplan.json" on disk. octet-stream is the
+        // generic binary type and tells SAF to keep our extension as-is.
+        'application/octet-stream'
       );
       await writeAsStringAsync(fileUri, json); // default UTF-8
 
       setExportModalVisible(false);
-      Alert.alert('Saved', `"${filename}" was saved to the folder you chose.`);
+      Alert.alert(
+        existingUri ? 'Replaced' : 'Saved',
+        `"${filename}" was ${existingUri ? 'updated' : 'saved'} in the folder you chose.`
+      );
     } catch (e) {
       console.error('Export to folder error:', e);
       Alert.alert('Save failed', e.message || 'Could not save the plan to that folder.');
@@ -805,8 +986,9 @@ export default function PersonalizePlan() {
     if (!plan || exportBusy) return;
     setExportBusy(true);
     try {
-      const chosenName = resolveExportName();
+      const chosenName = resolveAndCommitName();
       const env = buildEnvelope(plan, { name: chosenName });
+      persistImportedSnapshotIfNeeded(env);
       const code = envelopeToShareString(env);
       await Clipboard.setStringAsync(code);
       Alert.alert(
